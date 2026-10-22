@@ -804,7 +804,7 @@ export default function Home() {
               </button>
             </div>
 
-            {/* TAB VIEW 1: TODAY */}
+            {/* TAB VIEW 1: TODAY (Matched dynamically by subject, not index) */}
             {studentTab === 'today' && (
               <div>
                 <div className="grid grid-cols-2 gap-4 mb-6">
@@ -825,26 +825,36 @@ export default function Home() {
                   {timetable.length === 0 ? (
                     <p className="text-xs text-slate-400 py-4 text-center">No scheduled lectures today.</p>
                   ) : (
-                    timetable.map((cls, idx) => (
-                      <div key={cls.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-800/40 flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          <Clock className="w-4 h-4 text-slate-400" />
-                          <div>
-                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{cls.subject}</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{cls.time}</p>
+                    timetable.map((cls) => {
+                      // Normalize check: checks if logged subject matches class subject cleanly
+                      const isPresent = attendanceLogs.some((log) => {
+                        if (!log.subject) return false;
+                        const s1 = log.subject.toLowerCase().replace(/[^a-z0-9]/g, '');
+                        const s2 = cls.subject.toLowerCase().replace(/[^a-z0-9]/g, '');
+                        return s1.includes(s2) || s2.includes(s1);
+                      });
+
+                      return (
+                        <div key={cls.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-800/40 flex items-center justify-between">
+                          <div className="flex items-center space-x-3">
+                            <Clock className="w-4 h-4 text-slate-400" />
+                            <div>
+                              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{cls.subject}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{cls.time}</p>
+                            </div>
                           </div>
+                          <span
+                            className={`text-xs font-medium px-2.5 py-1 rounded-lg ${
+                              isPresent
+                                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
+                            }`}
+                          >
+                            {isPresent ? 'Present' : cls.status}
+                          </span>
                         </div>
-                        <span
-                          className={`text-xs font-medium px-2.5 py-1 rounded-lg ${
-                            idx < attendanceLogs.length
-                              ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold'
-                              : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
-                          }`}
-                        >
-                          {idx < attendanceLogs.length ? 'Present' : cls.status}
-                        </span>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -905,7 +915,7 @@ export default function Home() {
                 ) : (
                   <div className="space-y-2.5">
                     {attendanceLogs.map((item) => (
-                      <div key={item.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-850 flex items-center justify-between shadow-sm">
+                      <div key={item.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between shadow-sm">
                         <div className="flex items-center space-x-3">
                           <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
                           <div>
