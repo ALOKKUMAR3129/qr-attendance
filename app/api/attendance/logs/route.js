@@ -1,51 +1,75 @@
 import { NextResponse } from 'next/server';
 import { getGoogleSheet } from '@/lib/googleSheets';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
+    const sessionId = searchParams.get('sessionId');
     const rollNo = searchParams.get('rollNo');
 
     const doc = await getGoogleSheet();
-    const sheet = doc.sheetsByTitle['Attendance_Logs'];
+    const logSheet = doc.sheetsByTitle['Attendance_Logs'];
 
-    if (!sheet) {
-      return NextResponse.json({ success: true, logs: [], stats: {} });
+    if (!logSheet) {
+      return NextResponse.json({ success: true, logs: [] });
     }
 
-    const rows = await sheet.getRows();
-    
-    const studentRows = rollNo
-      ? rows.filter((r) => String(r.get('Roll_No') || '').trim() === String(rollNo).trim())
-      : rows;
+    const rows = await logSheet.getRows();
+    let filteredRows = rows;
 
-    const logs = studentRows.map((r, i) => ({
-      id: i + 1,
-      subject: r.get('Subject') || 'Class',
-      date: r.get('Date') || '',
-      time: r.get('Timestamp') || '',
-      distance: `${r.get('Distance_M') || 0}m`,
-      status: r.get('Status') || 'Present'
-    })).reverse();
+    // Strict session filter taaki purani classes ka data na aaye
+    if (sessionId) {
+      filteredRows = filteredRows.filter(
+        (row) => String(row.get('Session_ID') || '').trim() === String(sessionId).trim()
+      );
+    } else if (rollNo) {
+      filteredRows = filteredRows.filter(
+        (row) => String(row.get('Roll_No') || row.get('Roll_Number') || row.get('User_ID') || '').trim() === String(rollNo).trim()
+      );
+    }
 
-    // Subject-wise attendance calculation
-    const subjectStats = {};
-    studentRows.forEach((r) => {
-      const sub = r.get('Subject') || 'General';
-      if (!subjectStats[sub]) {
-        subjectStats[sub] = { attended: 0, total: 0 };
+    const logs = filteredRows.map((row, idx) => {
+      // Name aur Roll ke alag-alag possible headers check karo
+      const sName =
+        row.get('Student_Name') ||
+        row.get('Name') ||
+        row.get('Student') ||
+        'Student';
+
+      const sRoll =
+        row.get('Roll_No') ||
+        row.get('Roll_Number') ||
+        row.get('Roll') ||
+        row.get('User_ID') ||
+        '';
+
+      const rawTime = row.get('Timestamp') || '';
+      let formattedTime = rawTime;
+      if (rawTime) {
+        try {
+          formattedTime = new Date(rawTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } catch (e) {
+          formattedTime = rawTime;
+        }
       }
-      subjectStats[sub].attended += 1;
-      subjectStats[sub].total += 1; 
+
+      return {
+        id: (row.get('Session_ID') || 'sess') + '_' + (sRoll || idx),
+        subject: row.get('Subject') || 'General',
+        studentName: sName,
+        rollNo: sRoll,
+        time: formattedTime,
+        date: row.get('Date') || '',
+        distance: `${Math.round(parseFloat(row.get('Distance_M')) || 0)}m`,
+        status: row.get('Status') || 'Verified',
+      };
     });
 
-    return NextResponse.json({
-      success: true,
-      logs,
-      totalAttended: studentRows.length,
-      subjectStats
-    });
+    return NextResponse.json({ success: true, logs: logs.reverse() });
   } catch (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    console.error('Fetch logs error:', error);
+    return NextResponse.json({ success: false, logs: [], message: error.message }, { status: 500 });
   }
 }
