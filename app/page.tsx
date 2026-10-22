@@ -4,10 +4,12 @@ import { useState, useEffect } from 'react';
 // @ts-ignore
 import QRCode from 'qrcode';
 import { Html5QrcodeScanner } from 'html5-qrcode';
+import { useTheme } from 'next-themes';
 import {
   QrCode,
   UserCheck,
   Moon,
+  Sun,
   LogOut,
   Clock,
   MapPin,
@@ -25,7 +27,15 @@ import {
 } from 'lucide-react';
 
 export default function Home() {
-  // Authentication State (Empty by default)
+  // Theme state
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Authentication State
   const [user, setUser] = useState<{
     role: 'student' | 'teacher';
     name: string;
@@ -291,15 +301,22 @@ export default function Home() {
     );
   };
 
+  const isDark = mounted && theme === 'dark';
+
   // -------------------------------------------------------------
   // VIEW 1: AUTHENTICATION LOGIN
   // -------------------------------------------------------------
   if (!user) {
     return (
-      <main className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+      <main className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4 transition-colors">
         <div className="absolute top-6 right-6">
-          <button className="p-2.5 rounded-full border border-slate-200 bg-white text-slate-500 hover:text-slate-800 shadow-sm transition">
-            <Moon className="w-4 h-4" />
+          <button
+            type="button"
+            onClick={() => setTheme(isDark ? 'light' : 'dark')}
+            className="p-2.5 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 shadow-sm transition"
+            title="Toggle theme"
+          >
+            {isDark ? <Sun className="w-4 h-4 text-yellow-400" /> : <Moon className="w-4 h-4" />}
           </button>
         </div>
 
@@ -307,17 +324,19 @@ export default function Home() {
           <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-blue-500/25 mb-4">
             <QrCode className="w-7 h-7 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">QR Attendance</h1>
-          <p className="text-sm text-slate-500 mt-1 font-medium">Smart campus attendance system</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">QR Attendance</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 font-medium">Smart campus attendance system</p>
         </div>
 
-        <div className="w-full max-w-[420px] bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-100 p-6 sm:p-8">
-          <div className="grid grid-cols-2 gap-1 bg-slate-100 p-1 rounded-xl mb-6">
+        <div className="w-full max-w-[420px] bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-slate-800 p-6 sm:p-8">
+          <div className="grid grid-cols-2 gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl mb-6">
             <button
               type="button"
               onClick={() => setLoginRole('student')}
               className={`py-2 text-xs font-semibold rounded-lg flex items-center justify-center space-x-2 transition ${
-                loginRole === 'student' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                loginRole === 'student'
+                  ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               <QrCode className="w-3.5 h-3.5" />
@@ -327,7 +346,9 @@ export default function Home() {
               type="button"
               onClick={() => setLoginRole('teacher')}
               className={`py-2 text-xs font-semibold rounded-lg flex items-center justify-center space-x-2 transition ${
-                loginRole === 'teacher' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                loginRole === 'teacher'
+                  ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               <UserCheck className="w-3.5 h-3.5" />
@@ -336,15 +357,15 @@ export default function Home() {
           </div>
 
           {loginError && (
-            <div className="p-3 mb-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+            <div className="p-3 mb-4 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-400 rounded-xl text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400" />
               <span>{loginError}</span>
             </div>
           )}
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1.5">
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-slate-400" />
                 Email
               </label>
@@ -354,12 +375,12 @@ export default function Home() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 text-slate-800"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 text-slate-800 dark:text-slate-100"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1.5">
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-slate-400" />
                 Password
               </label>
@@ -369,7 +390,7 @@ export default function Home() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 text-slate-800"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 text-slate-800 dark:text-slate-100"
               />
             </div>
 
@@ -401,34 +422,39 @@ export default function Home() {
   // -------------------------------------------------------------
   if (user.role === 'teacher') {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-        <header className="bg-white border-b border-slate-200/80 px-6 py-3 flex items-center justify-between sticky top-0 z-10">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans transition-colors">
+        <header className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 px-6 py-3 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center space-x-3">
             <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-sm">
               <QrCode className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-slate-900 leading-none">QR Attendance</h1>
-              <p className="text-[11px] text-slate-500 mt-0.5">Smart campus attendance</p>
+              <h1 className="text-sm font-bold text-slate-900 dark:text-white leading-none">QR Attendance</h1>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Smart campus attendance</p>
             </div>
           </div>
 
           <div className="flex items-center space-x-3">
-            <div className="flex items-center space-x-2 bg-slate-100/80 border border-slate-200 px-3 py-1.5 rounded-xl">
-              <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">
+            <div className="flex items-center space-x-2 bg-slate-100/80 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1.5 rounded-xl">
+              <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-600 dark:text-blue-300 text-xs font-bold">
                 T
               </div>
               <div className="text-left text-xs">
-                <p className="font-semibold text-slate-800 leading-none">{user.name}</p>
-                <p className="text-[10px] text-slate-500">{user.section || 'Faculty'}</p>
+                <p className="font-semibold text-slate-800 dark:text-slate-200 leading-none">{user.name}</p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">{user.section || 'Faculty'}</p>
               </div>
             </div>
-            <button className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-100">
-              <Moon className="w-4 h-4" />
+            <button
+              type="button"
+              onClick={() => setTheme(isDark ? 'light' : 'dark')}
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              title="Toggle theme"
+            >
+              {isDark ? <Sun className="w-4 h-4 text-yellow-400" /> : <Moon className="w-4 h-4" />}
             </button>
             <button
               onClick={handleLogout}
-              className="p-2 rounded-xl border border-red-200 text-red-500 hover:bg-red-50"
+              className="p-2 rounded-xl border border-red-200 dark:border-red-900/50 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
               title="Logout"
             >
               <LogOut className="w-4 h-4" />
@@ -439,17 +465,17 @@ export default function Home() {
         <main className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-6 space-y-6">
             {/* Smart QR Generator */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-              <div className="flex items-center space-x-2 mb-4 text-blue-600">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+              <div className="flex items-center space-x-2 mb-4 text-blue-600 dark:text-blue-400">
                 <QrCode className="w-5 h-5" />
-                <h2 className="text-base font-bold text-slate-900">Smart QR Generator</h2>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white">Smart QR Generator</h2>
               </div>
-              <p className="text-xs font-medium text-slate-500 mb-3">Today's classes</p>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3">Today's classes</p>
 
               {loadingTimetable ? (
                 <div className="py-6 text-center text-xs text-slate-400">Loading schedule...</div>
               ) : timetable.length === 0 ? (
-                <div className="p-4 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-400 mb-4">
+                <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400 mb-4">
                   No classes scheduled in Google Sheet for today.
                 </div>
               ) : (
@@ -460,17 +486,17 @@ export default function Home() {
                       onClick={() => setSelectedClass(cls)}
                       className={`p-3.5 rounded-xl border cursor-pointer transition flex items-center justify-between ${
                         selectedClass?.id === cls.id
-                          ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600'
-                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                          ? 'border-blue-600 bg-blue-50/40 dark:bg-blue-950/30 ring-1 ring-blue-600'
+                          : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-900'
                       }`}
                     >
                       <div>
-                        <p className="text-sm font-bold text-slate-900">{cls.subject}</p>
-                        <p className="text-xs text-slate-500 mt-0.5">
+                        <p className="text-sm font-bold text-slate-900 dark:text-white">{cls.subject}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                           {cls.time} • {cls.room}
                         </p>
                       </div>
-                      <span className="text-[11px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
+                      <span className="text-[11px] font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">
                         {cls.status}
                       </span>
                     </div>
@@ -497,9 +523,9 @@ export default function Home() {
               </button>
 
               {qrCodeUrl && (
-                <div className="mt-5 p-5 bg-slate-50 rounded-2xl border border-slate-200 text-center flex flex-col items-center">
-                  <img src={qrCodeUrl} alt="Attendance QR" className="rounded-xl shadow-md border mb-2 max-w-[260px]" />
-                  <div className="inline-flex items-center text-xs font-semibold text-emerald-700 bg-emerald-100/70 px-3 py-1 rounded-full">
+                <div className="mt-5 p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 text-center flex flex-col items-center">
+                  <img src={qrCodeUrl} alt="Attendance QR" className="rounded-xl shadow-md border mb-2 max-w-[260px] bg-white p-2" />
+                  <div className="inline-flex items-center text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/50 px-3 py-1 rounded-full">
                     <MapPin className="w-3.5 h-3.5 mr-1" />
                     500m Geofence Active
                   </div>
@@ -509,15 +535,17 @@ export default function Home() {
             </div>
 
             {/* Weekly Timetable */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-              <h3 className="text-base font-bold text-slate-900 mb-4">Faculty Weekly Timetable</h3>
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white mb-4">Faculty Weekly Timetable</h3>
               <div className="flex space-x-2 mb-4 overflow-x-auto pb-1">
                 {days.map((day) => (
                   <button
                     key={day}
                     onClick={() => setActiveDay(day)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                      activeDay === day ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      activeDay === day
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                     }`}
                   >
                     {day}
@@ -530,11 +558,11 @@ export default function Home() {
               ) : (
                 <div className="space-y-3">
                   {timetable.map((cls) => (
-                    <div key={cls.id} className="p-3.5 rounded-xl border border-slate-100 bg-slate-50 flex items-center space-x-3">
+                    <div key={cls.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex items-center space-x-3">
                       <div className="w-4 h-4 rounded-full border-2 border-blue-500" />
                       <div>
-                        <p className="text-sm font-semibold text-slate-800">{cls.subject}</p>
-                        <p className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
+                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{cls.subject}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 mt-0.5">
                           <span>{cls.time}</span>
                           <span>•</span>
                           <span>{cls.room}</span>
@@ -549,29 +577,29 @@ export default function Home() {
 
           {/* Right Column: Live Attendance Logs */}
           <div className="lg:col-span-6">
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm h-full flex flex-col">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm h-full flex flex-col">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-6">
                 <div className="flex items-center space-x-2">
-                  <UserCheck className="w-5 h-5 text-slate-700" />
-                  <h3 className="text-base font-bold text-slate-900">Live Attendance</h3>
-                  <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <UserCheck className="w-5 h-5 text-slate-700 dark:text-slate-300" />
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Live Attendance</h3>
+                  <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Realtime
                   </span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <button className="text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-lg flex items-center gap-1 transition">
+                  <button className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-800 px-3 py-1.5 rounded-lg flex items-center gap-1 transition">
                     <Download className="w-3.5 h-3.5" /> Export
                   </button>
-                  <button className="text-xs font-medium text-slate-400 hover:text-slate-600 px-2">Clear</button>
+                  <button className="text-xs font-medium text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 px-2">Clear</button>
                 </div>
               </div>
 
               <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-400">
-                <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center mb-3">
-                  <UserCheck className="w-8 h-8 text-slate-300" />
+                <div className="w-16 h-16 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center mb-3">
+                  <UserCheck className="w-8 h-8 text-slate-300 dark:text-slate-600" />
                 </div>
-                <p className="text-sm font-medium text-slate-500">No attendance marked yet</p>
-                <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">No attendance marked yet</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-xs">
                   Generate a QR code and student scans will appear here live in Google Sheets.
                 </p>
               </div>
@@ -586,34 +614,39 @@ export default function Home() {
   // VIEW 3: STUDENT DASHBOARD
   // -------------------------------------------------------------
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      <header className="bg-white border-b border-slate-200/80 px-6 py-3 flex items-center justify-between sticky top-0 z-10">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans transition-colors">
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 px-6 py-3 flex items-center justify-between sticky top-0 z-10">
         <div className="flex items-center space-x-3">
           <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-sm">
             <QrCode className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-sm font-bold text-slate-900 leading-none">QR Attendance</h1>
-            <p className="text-[11px] text-slate-500 mt-0.5">Smart campus attendance</p>
+            <h1 className="text-sm font-bold text-slate-900 dark:text-white leading-none">QR Attendance</h1>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Smart campus attendance</p>
           </div>
         </div>
 
         <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-2 bg-slate-100/80 border border-slate-200 px-3 py-1.5 rounded-xl">
-            <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">
+          <div className="flex items-center space-x-2 bg-slate-100/80 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1.5 rounded-xl">
+            <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-600 dark:text-blue-300 text-xs font-bold">
               S
             </div>
             <div className="text-left text-xs">
-              <p className="font-semibold text-slate-800 leading-none">{user.name}</p>
-              <p className="text-[10px] text-slate-500">Roll: {user.id} ({user.section || 'Student'})</p>
+              <p className="font-semibold text-slate-800 dark:text-slate-200 leading-none">{user.name}</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">Roll: {user.id} ({user.section || 'Student'})</p>
             </div>
           </div>
-          <button className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-100">
-            <Moon className="w-4 h-4" />
+          <button
+            type="button"
+            onClick={() => setTheme(isDark ? 'light' : 'dark')}
+            className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            title="Toggle theme"
+          >
+            {isDark ? <Sun className="w-4 h-4 text-yellow-400" /> : <Moon className="w-4 h-4" />}
           </button>
           <button
             onClick={handleLogout}
-            className="p-2 rounded-xl border border-red-200 text-red-500 hover:bg-red-50"
+            className="p-2 rounded-xl border border-red-200 dark:border-red-900/50 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
             title="Logout"
           >
             <LogOut className="w-4 h-4" />
@@ -624,18 +657,18 @@ export default function Home() {
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Scanner & Weekly Timetable */}
         <div className="lg:col-span-6 space-y-6">
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <div className="flex items-center space-x-2 mb-4 text-blue-600">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+            <div className="flex items-center space-x-2 mb-4 text-blue-600 dark:text-blue-400">
               <Camera className="w-5 h-5" />
-              <h2 className="text-base font-bold text-slate-900">Campus QR Scanner</h2>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">Campus QR Scanner</h2>
             </div>
 
             {!scannerActive && (
-              <div className="flex flex-col items-center justify-center p-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-center">
-                <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-3">
+              <div className="flex flex-col items-center justify-center p-8 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-center">
+                <div className="w-14 h-14 rounded-2xl bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center mb-3">
                   <QrCode className="w-7 h-7" />
                 </div>
-                <p className="text-sm font-semibold text-slate-700">Scan your teacher's live QR code to mark attendance.</p>
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Scan your teacher's live QR code to mark attendance.</p>
                 <button
                   onClick={() => {
                     setScannerActive(true);
@@ -650,11 +683,11 @@ export default function Home() {
             )}
 
             {scannerActive && (
-              <div className="overflow-hidden rounded-2xl border border-slate-200">
+              <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-black">
                 <div id="student-reader" className="w-full" />
                 <button
                   onClick={() => setScannerActive(false)}
-                  className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold"
+                  className="w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold"
                 >
                   Cancel Scan
                 </button>
@@ -662,7 +695,7 @@ export default function Home() {
             )}
 
             {marking && (
-              <div className="mt-4 p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-blue-700 text-xs flex items-center justify-center gap-2">
+              <div className="mt-4 p-3.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900 rounded-xl text-blue-700 dark:text-blue-300 text-xs flex items-center justify-center gap-2">
                 <RefreshCw className="w-4 h-4 animate-spin" /> Verifying 500m geofence & updating Google Sheets...
               </div>
             )}
@@ -671,8 +704,8 @@ export default function Home() {
               <div
                 className={`mt-4 p-4 rounded-xl border text-sm flex items-start space-x-2.5 ${
                   scanMessage.type === 'success'
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                    : 'bg-red-50 border-red-200 text-red-800'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                    : 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-800 dark:text-red-300'
                 }`}
               >
                 {scanMessage.type === 'success' ? (
@@ -685,15 +718,17 @@ export default function Home() {
             )}
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <h3 className="text-base font-bold text-slate-900 mb-4">Batch Weekly Timetable</h3>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white mb-4">Batch Weekly Timetable</h3>
             <div className="flex space-x-2 mb-4 overflow-x-auto pb-1">
               {days.map((day) => (
                 <button
                   key={day}
                   onClick={() => setActiveDay(day)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                    activeDay === day ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    activeDay === day
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                   }`}
                 >
                   {day}
@@ -704,17 +739,17 @@ export default function Home() {
             {loadingTimetable ? (
               <p className="text-xs text-slate-400 py-3 text-center">Loading batch schedule...</p>
             ) : timetable.length === 0 ? (
-              <div className="p-4 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-400">
+              <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
                 No classes scheduled in Google Sheet for {activeDay}.
               </div>
             ) : (
               <div className="space-y-3">
                 {timetable.map((cls) => (
-                  <div key={cls.id} className="p-3.5 rounded-xl border border-slate-100 bg-slate-50 flex items-center space-x-3">
-                    <div className="w-4 h-4 rounded-full border-2 border-slate-300" />
+                  <div key={cls.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex items-center space-x-3">
+                    <div className="w-4 h-4 rounded-full border-2 border-slate-300 dark:border-slate-600" />
                     <div>
-                      <p className="text-sm font-semibold text-slate-800">{cls.subject}</p>
-                      <p className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{cls.subject}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 mt-0.5">
                         <span>{cls.time}</span>
                         <span>•</span>
                         <span>{cls.room}</span>
@@ -727,20 +762,22 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Right Column: Interactive Attendance Analytics (Today | Semester | History) */}
+        {/* Right Column: Interactive Attendance Analytics */}
         <div className="lg:col-span-6 space-y-6">
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <div className="flex items-center space-x-2 mb-5 text-blue-600">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+            <div className="flex items-center space-x-2 mb-5 text-blue-600 dark:text-blue-400">
               <Sparkles className="w-5 h-5" />
-              <h3 className="text-base font-bold text-slate-900">Attendance Analytics</h3>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">Attendance Analytics</h3>
             </div>
 
             {/* Filter Tabs */}
-            <div className="flex bg-slate-100 p-1 rounded-xl mb-6 max-w-xs">
+            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl mb-6 max-w-xs">
               <button
                 onClick={() => setStudentTab('today')}
                 className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition ${
-                  studentTab === 'today' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                  studentTab === 'today'
+                    ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
                 }`}
               >
                 Today
@@ -748,7 +785,9 @@ export default function Home() {
               <button
                 onClick={() => setStudentTab('semester')}
                 className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition ${
-                  studentTab === 'semester' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                  studentTab === 'semester'
+                    ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
                 }`}
               >
                 Semester
@@ -756,7 +795,9 @@ export default function Home() {
               <button
                 onClick={() => setStudentTab('history')}
                 className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition ${
-                  studentTab === 'history' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                  studentTab === 'history'
+                    ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
                 }`}
               >
                 History
@@ -767,14 +808,14 @@ export default function Home() {
             {studentTab === 'today' && (
               <div>
                 <div className="grid grid-cols-2 gap-4 mb-6">
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-                    <p className="text-xs font-medium text-slate-500">Marked Today</p>
-                    <p className="text-2xl font-bold text-slate-900 mt-1">{attendanceLogs.length}</p>
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Marked Today</p>
+                    <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{attendanceLogs.length}</p>
                     <p className="text-[11px] text-slate-400 mt-0.5">of {timetable.length || 0} classes</p>
                   </div>
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-                    <p className="text-xs font-medium text-slate-500">Today's Rate</p>
-                    <p className="text-2xl font-bold text-blue-600 mt-1">
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Today's Rate</p>
+                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">
                       {timetable.length > 0 ? Math.round((attendanceLogs.length / timetable.length) * 100) : 0}%
                     </p>
                   </div>
@@ -782,22 +823,22 @@ export default function Home() {
 
                 <div className="space-y-3">
                   {timetable.length === 0 ? (
-                    <p className="text-xs text-slate-400 text-center py-4">No scheduled lectures today.</p>
+                    <p className="text-xs text-slate-400 py-4 text-center">No scheduled lectures today.</p>
                   ) : (
                     timetable.map((cls, idx) => (
-                      <div key={cls.id} className="p-3.5 rounded-xl border border-slate-100 bg-white flex items-center justify-between">
+                      <div key={cls.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-800/40 flex items-center justify-between">
                         <div className="flex items-center space-x-3">
                           <Clock className="w-4 h-4 text-slate-400" />
                           <div>
-                            <p className="text-sm font-semibold text-slate-800">{cls.subject}</p>
-                            <p className="text-xs text-slate-500 mt-0.5">{cls.time}</p>
+                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{cls.subject}</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{cls.time}</p>
                           </div>
                         </div>
                         <span
                           className={`text-xs font-medium px-2.5 py-1 rounded-lg ${
                             idx < attendanceLogs.length
-                              ? 'bg-emerald-50 text-emerald-700 font-semibold'
-                              : 'bg-slate-100 text-slate-400'
+                              ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
                           }`}
                         >
                           {idx < attendanceLogs.length ? 'Present' : cls.status}
@@ -809,14 +850,14 @@ export default function Home() {
               </div>
             )}
 
-            {/* TAB VIEW 2: SEMESTER (100% Dynamic, No Hardcoded/Fake Data) */}
+            {/* TAB VIEW 2: SEMESTER */}
             {studentTab === 'semester' && (
               <div className="space-y-5">
                 {attendanceLogs.length === 0 ? (
                   <div className="py-12 text-center text-slate-400 flex flex-col items-center">
-                    <BarChart3 className="w-8 h-8 text-slate-300 mb-2" />
-                    <p className="text-sm font-medium text-slate-500">No attendance data recorded yet</p>
-                    <p className="text-xs text-slate-400 mt-0.5 max-w-xs">
+                    <BarChart3 className="w-8 h-8 text-slate-300 dark:text-slate-600 mb-2" />
+                    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">No attendance data recorded yet</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 max-w-xs">
                       Once attendance is marked via QR scan, your semester percentage and subject breakdown will appear here.
                     </p>
                   </div>
@@ -835,9 +876,9 @@ export default function Home() {
                     <div className="space-y-3">
                       <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Marked Lectures</h4>
                       {attendanceLogs.map((log) => (
-                        <div key={log.id} className="p-3.5 rounded-xl border border-slate-100 bg-slate-50 flex justify-between items-center">
-                          <span className="text-sm font-semibold text-slate-800">{log.subject}</span>
-                          <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">
+                        <div key={log.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex justify-between items-center">
+                          <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{log.subject}</span>
+                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md">
                             Present
                           </span>
                         </div>
@@ -855,25 +896,25 @@ export default function Home() {
 
                 {attendanceLogs.length === 0 ? (
                   <div className="py-12 text-center text-slate-400 flex flex-col items-center">
-                    <HistoryIcon className="w-8 h-8 text-slate-300 mb-2" />
-                    <p className="text-sm font-medium text-slate-500">No recent history</p>
-                    <p className="text-xs text-slate-400 mt-0.5 max-w-xs">
+                    <HistoryIcon className="w-8 h-8 text-slate-300 dark:text-slate-600 mb-2" />
+                    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">No recent history</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 max-w-xs">
                       Scanned QR logs will appear here in chronological order once you mark attendance.
                     </p>
                   </div>
                 ) : (
                   <div className="space-y-2.5">
                     {attendanceLogs.map((item) => (
-                      <div key={item.id} className="p-3.5 rounded-xl border border-slate-100 bg-white flex items-center justify-between shadow-sm">
+                      <div key={item.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-850 flex items-center justify-between shadow-sm">
                         <div className="flex items-center space-x-3">
                           <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
                           <div>
-                            <p className="text-sm font-semibold text-slate-800">{item.subject}</p>
+                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{item.subject}</p>
                             <p className="text-[11px] text-slate-400 mt-0.5">{item.date} • {item.time}</p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
+                          <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md">
                             {item.status}
                           </span>
                           <p className="text-[10px] text-slate-400 mt-0.5">{item.distance}</p>
