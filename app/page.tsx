@@ -64,7 +64,7 @@ export default function Home() {
   const [countdown, setCountdown] = useState(30);
   const lastTeacherCoords = useRef<{ lat: number; lng: number } | null>(null);
 
-  // Submit / Locked Class State
+  // Submit & Absentees State
   const [submittedClasses, setSubmittedClasses] = useState<string[]>([]);
   const [absentees, setAbsentees] = useState<any[]>([]);
   const [submittingAttendance, setSubmittingAttendance] = useState(false);
@@ -329,10 +329,12 @@ export default function Home() {
     );
   };
 
-  // TEACHER: Submit Attendance & Lock Session
+  // Submit Attendance & Fetch Absentees
   const handleSubmitAttendance = async () => {
     if (!selectedClass) return;
-    const confirmSubmit = window.confirm('Are you sure you want to lock and submit attendance for this lecture? QR code generation will be closed.');
+    const confirmSubmit = window.confirm(
+      'Are you sure you want to lock and submit attendance for this lecture? QR code generation will be closed.'
+    );
     if (!confirmSubmit) return;
 
     setSubmittingAttendance(true);
@@ -342,21 +344,22 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           subject: selectedClass.subject,
-          branchSection: selectedClass.room || selectedClass.subject
-        })
+          branchSection: selectedClass.room || selectedClass.subject,
+        }),
       });
 
       const data = await res.json();
       if (!data.success) throw new Error(data.message);
 
-      // Lock QR
       setQrCodeUrl('');
       setActiveSessionId('');
       setSubmittedClasses((prev) => [...prev, selectedClass.id || selectedClass.subject]);
-      if (data.absentees) {
+
+      if (data.absentees && data.absentees.length > 0) {
         setAbsentees(data.absentees);
+      } else {
+        alert('All students in this section were present! No absentees.');
       }
-      alert('Attendance submitted successfully! Absentees are now listed.');
     } catch (err: any) {
       alert('Error submitting attendance: ' + err.message);
     } finally {
@@ -663,7 +666,7 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Generate QR Button (Disabled if already submitted) */}
+              {/* Generate QR Button */}
               {!isClassSubmitted ? (
                 <button
                   onClick={handleGenerateQR}
@@ -689,7 +692,7 @@ export default function Home() {
                 </div>
               )}
 
-              {/* QR Container (No Session ID text, with Submit Button) */}
+              {/* QR Container */}
               {qrCodeUrl && (
                 <div className="mt-5 p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 text-center flex flex-col items-center">
                   <img src={qrCodeUrl} alt="Attendance QR" className="rounded-xl shadow-md border mb-3 max-w-[260px] bg-white p-2" />
@@ -710,7 +713,7 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* SUBMIT ATTENDANCE BUTTON */}
+                  {/* Submit Attendance Button */}
                   <button
                     onClick={handleSubmitAttendance}
                     disabled={submittingAttendance}
@@ -807,7 +810,7 @@ export default function Home() {
                 </div>
               ) : (
                 <div className="space-y-4 flex-1 overflow-y-auto max-h-[550px]">
-                  {/* Present List */}
+                  {/* Present Students List */}
                   <div>
                     <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5 flex items-center gap-1.5">
                       <UserCheck className="w-3.5 h-3.5 text-emerald-500" /> Present Students ({teacherLogs.length})
@@ -837,9 +840,9 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* Absentees List (Shown when Submit Attendance is clicked) */}
+                  {/* Absent Students List */}
                   {absentees.length > 0 && (
-                    <div className="pt-3 border-t border-slate-100 dark:border-slate-800">
+                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
                       <h4 className="text-xs font-bold uppercase tracking-wider text-red-500 mb-2.5 flex items-center gap-1.5">
                         <UserX className="w-3.5 h-3.5 text-red-500" /> Absent Students ({absentees.length})
                       </h4>
@@ -847,7 +850,7 @@ export default function Home() {
                         {absentees.map((abs) => (
                           <div
                             key={abs.rollNo}
-                            className="p-3 rounded-xl border border-red-100 dark:border-red-950/50 bg-red-50/50 dark:bg-red-950/20 flex items-center justify-between"
+                            className="p-3 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50/60 dark:bg-red-950/30 flex items-center justify-between"
                           >
                             <div className="flex items-center space-x-3">
                               <div className="w-7 h-7 rounded-full bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 flex items-center justify-center text-xs font-bold">
@@ -857,10 +860,10 @@ export default function Home() {
                                 <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
                                   {abs.name} ({abs.rollNo})
                                 </p>
-                                <p className="text-[11px] text-red-500">Unverified / Not Scanned</p>
+                                <p className="text-[11px] text-red-500 font-medium">Unverified / Not Scanned</p>
                               </div>
                             </div>
-                            <span className="text-xs font-semibold text-red-700 dark:text-red-400 bg-red-100/80 dark:bg-red-950/70 px-2.5 py-0.5 rounded-md">
+                            <span className="text-xs font-semibold text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-950/70 px-2.5 py-0.5 rounded-md">
                               Absent
                             </span>
                           </div>
