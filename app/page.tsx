@@ -27,7 +27,6 @@ import {
 } from 'lucide-react';
 
 export default function Home() {
-  // Theme state
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -35,7 +34,6 @@ export default function Home() {
     setMounted(true);
   }, []);
 
-  // Authentication State
   const [user, setUser] = useState<{
     role: 'student' | 'teacher';
     name: string;
@@ -50,35 +48,31 @@ export default function Home() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
 
-  // Timetable State (Dynamic from Google Sheet)
   const [activeDay, setActiveDay] = useState('Thu');
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const [timetable, setTimetable] = useState<any[]>([]);
   const [loadingTimetable, setLoadingTimetable] = useState(false);
 
-  // Student Analytics Tab State (Today | Semester | History)
   const [studentTab, setStudentTab] = useState<'today' | 'semester' | 'history'>('today');
 
-  // Teacher QR State
   const [selectedClass, setSelectedClass] = useState<any>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [generatingQR, setGeneratingQR] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState('');
+  const [teacherLogs, setTeacherLogs] = useState<any[]>([]);
 
-  // Student Scanner & Logs State
   const [scannerActive, setScannerActive] = useState(false);
   const [scanMessage, setScanMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [marking, setMarking] = useState(false);
   const [attendanceLogs, setAttendanceLogs] = useState<any[]>([]);
 
-  // Reset inputs on role toggle
   useEffect(() => {
     setEmail('');
     setPassword('');
     setLoginError('');
   }, [loginRole]);
 
-  // Fetch Dynamic Timetable directly from Google Sheet matching Section or Teacher ID
+  // Load Timetable
   useEffect(() => {
     if (!user) return;
     async function fetchTimetable() {
@@ -89,7 +83,7 @@ export default function Home() {
         const data = await res.json();
         if (data.success) {
           setTimetable(data.data);
-          if (user?.role === 'teacher' && data.data.length > 0) {
+          if (user?.role === 'teacher' && data.data.length > 0 && !selectedClass) {
             setSelectedClass(data.data[0]);
           }
         }
@@ -102,7 +96,42 @@ export default function Home() {
     fetchTimetable();
   }, [user, activeDay]);
 
-  // LOGIN HANDLER
+  // STUDENT: Load Attendance Logs directly from Google Sheet on Login / Refresh
+  useEffect(() => {
+    if (!user || user.role !== 'student') return;
+    async function loadStudentAttendance() {
+      try {
+        const res = await fetch(`/api/attendance/logs?rollNo=${encodeURIComponent(user?.id || '')}`);
+        const data = await res.json();
+        if (data.success && data.logs) {
+          setAttendanceLogs(data.logs);
+        }
+      } catch (err) {
+        console.error('Failed to load student attendance:', err);
+      }
+    }
+    loadStudentAttendance();
+  }, [user]);
+
+  // TEACHER: Poll Active Session Live Attendance every 3 seconds
+  useEffect(() => {
+    if (!user || user.role !== 'teacher' || !activeSessionId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/attendance/logs?sessionId=${encodeURIComponent(activeSessionId)}`);
+        const data = await res.json();
+        if (data.success && data.logs) {
+          setTeacherLogs(data.logs);
+        }
+      } catch (err) {
+        console.error('Failed to poll teacher logs:', err);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [user, activeSessionId]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
@@ -141,9 +170,9 @@ export default function Home() {
     setScannerActive(false);
     setScanMessage(null);
     setAttendanceLogs([]);
+    setTeacherLogs([]);
   };
 
-  // TEACHER: Generate Dynamic Geofenced QR
   const handleGenerateQR = () => {
     if (!selectedClass) {
       alert('Please select a class first.');
@@ -152,6 +181,7 @@ export default function Home() {
 
     setGeneratingQR(true);
     setQrCodeUrl('');
+    setTeacherLogs([]);
 
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser.');
@@ -206,7 +236,6 @@ export default function Home() {
     );
   };
 
-  // STUDENT: Live Camera Scanner (No file upload proxy)
   useEffect(() => {
     let scanner: any = null;
 
@@ -245,7 +274,6 @@ export default function Home() {
     };
   }, [scannerActive]);
 
-  // STUDENT: Geofence Verification & Attendance Logging
   const processAttendance = (sessionId: string, subject: string) => {
     setMarking(true);
     setScanMessage(null);
@@ -273,17 +301,12 @@ export default function Home() {
               text: `Attendance verified! You are ${data.distance}m from teacher.`
             });
 
-            setAttendanceLogs((prev) => [
-              {
-                id: Date.now(),
-                subject,
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                date: new Date().toLocaleDateString(),
-                distance: `${data.distance}m`,
-                status: 'Present'
-              },
-              ...prev
-            ]);
+            // Reload persistent attendance list from sheet
+            const logsRes = await fetch(`/api/attendance/logs?rollNo=${encodeURIComponent(user?.id || '')}`);
+            const logsData = await logsRes.json();
+            if (logsData.success && logsData.logs) {
+              setAttendanceLogs(logsData.logs);
+            }
           } else {
             setScanMessage({ type: 'error', text: data.message });
           }
@@ -303,9 +326,7 @@ export default function Home() {
 
   const isDark = mounted && theme === 'dark';
 
-  // -------------------------------------------------------------
   // VIEW 1: AUTHENTICATION LOGIN
-  // -------------------------------------------------------------
   if (!user) {
     return (
       <main className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4 transition-colors">
@@ -417,9 +438,7 @@ export default function Home() {
     );
   }
 
-  // -------------------------------------------------------------
   // VIEW 2: TEACHER DASHBOARD
-  // -------------------------------------------------------------
   if (user.role === 'teacher') {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans transition-colors">
@@ -464,7 +483,6 @@ export default function Home() {
 
         <main className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-6 space-y-6">
-            {/* Smart QR Generator */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
               <div className="flex items-center space-x-2 mb-4 text-blue-600 dark:text-blue-400">
                 <QrCode className="w-5 h-5" />
@@ -534,7 +552,6 @@ export default function Home() {
               )}
             </div>
 
-            {/* Weekly Timetable */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
               <h3 className="text-base font-bold text-slate-900 dark:text-white mb-4">Faculty Weekly Timetable</h3>
               <div className="flex space-x-2 mb-4 overflow-x-auto pb-1">
@@ -575,7 +592,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right Column: Live Attendance Logs */}
+          {/* Right Column: Dynamic Live Attendance Logs */}
           <div className="lg:col-span-6">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm h-full flex flex-col">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-6">
@@ -587,22 +604,47 @@ export default function Home() {
                   </span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <button className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-800 px-3 py-1.5 rounded-lg flex items-center gap-1 transition">
-                    <Download className="w-3.5 h-3.5" /> Export
-                  </button>
-                  <button className="text-xs font-medium text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 px-2">Clear</button>
+                  <span className="text-xs font-semibold px-2.5 py-1 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-lg">
+                    {teacherLogs.length} Present
+                  </span>
                 </div>
               </div>
 
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-400">
-                <div className="w-16 h-16 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center mb-3">
-                  <UserCheck className="w-8 h-8 text-slate-300 dark:text-slate-600" />
+              {teacherLogs.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-400">
+                  <div className="w-16 h-16 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center mb-3">
+                    <UserCheck className="w-8 h-8 text-slate-300 dark:text-slate-600" />
+                  </div>
+                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">No attendance marked yet</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-xs">
+                    Generate a QR code and student scans will appear here live in Google Sheets.
+                  </p>
                 </div>
-                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">No attendance marked yet</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-xs">
-                  Generate a QR code and student scans will appear here live in Google Sheets.
-                </p>
-              </div>
+              ) : (
+                <div className="space-y-3 flex-1 overflow-y-auto max-h-[500px]">
+                  {teacherLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between"
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xs font-bold">
+                          ✓
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                            {log.studentName} ({log.rollNo})
+                          </p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">{log.time} • GPS: {log.distance}</p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/70 px-2.5 py-1 rounded-md">
+                        Verified
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </main>
@@ -610,9 +652,7 @@ export default function Home() {
     );
   }
 
-  // -------------------------------------------------------------
   // VIEW 3: STUDENT DASHBOARD
-  // -------------------------------------------------------------
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans transition-colors">
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 px-6 py-3 flex items-center justify-between sticky top-0 z-10">
@@ -655,7 +695,6 @@ export default function Home() {
       </header>
 
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Scanner & Weekly Timetable */}
         <div className="lg:col-span-6 space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
             <div className="flex items-center space-x-2 mb-4 text-blue-600 dark:text-blue-400">
@@ -762,7 +801,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Right Column: Interactive Attendance Analytics */}
+        {/* Right Column: Attendance Analytics */}
         <div className="lg:col-span-6 space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
             <div className="flex items-center space-x-2 mb-5 text-blue-600 dark:text-blue-400">
@@ -770,7 +809,6 @@ export default function Home() {
               <h3 className="text-base font-bold text-slate-900 dark:text-white">Attendance Analytics</h3>
             </div>
 
-            {/* Filter Tabs */}
             <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl mb-6 max-w-xs">
               <button
                 onClick={() => setStudentTab('today')}
@@ -804,19 +842,40 @@ export default function Home() {
               </button>
             </div>
 
-            {/* TAB VIEW 1: TODAY (Matched dynamically by subject, not index) */}
+            {/* TAB VIEW 1: TODAY (Persistent from Google Sheets) */}
             {studentTab === 'today' && (
               <div>
                 <div className="grid grid-cols-2 gap-4 mb-6">
                   <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
                     <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Marked Today</p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{attendanceLogs.length}</p>
+                    <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">
+                      {timetable.filter((cls) =>
+                        attendanceLogs.some((log) => {
+                          const s1 = (log.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                          const s2 = (cls.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                          return s1.includes(s2) || s2.includes(s1);
+                        })
+                      ).length}
+                    </p>
                     <p className="text-[11px] text-slate-400 mt-0.5">of {timetable.length || 0} classes</p>
                   </div>
                   <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
                     <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Today's Rate</p>
                     <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">
-                      {timetable.length > 0 ? Math.round((attendanceLogs.length / timetable.length) * 100) : 0}%
+                      {timetable.length > 0
+                        ? Math.round(
+                            (timetable.filter((cls) =>
+                              attendanceLogs.some((log) => {
+                                const s1 = (log.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                                const s2 = (cls.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                                return s1.includes(s2) || s2.includes(s1);
+                              })
+                            ).length /
+                              timetable.length) *
+                              100
+                          )
+                        : 0}
+                      %
                     </p>
                   </div>
                 </div>
@@ -826,11 +885,9 @@ export default function Home() {
                     <p className="text-xs text-slate-400 py-4 text-center">No scheduled lectures today.</p>
                   ) : (
                     timetable.map((cls) => {
-                      // Normalize check: checks if logged subject matches class subject cleanly
                       const isPresent = attendanceLogs.some((log) => {
-                        if (!log.subject) return false;
-                        const s1 = log.subject.toLowerCase().replace(/[^a-z0-9]/g, '');
-                        const s2 = cls.subject.toLowerCase().replace(/[^a-z0-9]/g, '');
+                        const s1 = (log.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                        const s2 = (cls.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
                         return s1.includes(s2) || s2.includes(s1);
                       });
 
