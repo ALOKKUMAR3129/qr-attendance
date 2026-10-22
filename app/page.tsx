@@ -21,7 +21,9 @@ import {
   ArrowRight,
   Sparkles,
   BarChart3,
-  History as HistoryIcon
+  History as HistoryIcon,
+  CheckSquare,
+  UserX
 } from 'lucide-react';
 
 export default function Home() {
@@ -62,6 +64,11 @@ export default function Home() {
   const [countdown, setCountdown] = useState(30);
   const lastTeacherCoords = useRef<{ lat: number; lng: number } | null>(null);
 
+  // Submit / Locked Class State
+  const [submittedClasses, setSubmittedClasses] = useState<string[]>([]);
+  const [absentees, setAbsentees] = useState<any[]>([]);
+  const [submittingAttendance, setSubmittingAttendance] = useState(false);
+
   // Student Scanner & Logs State
   const [scannerActive, setScannerActive] = useState(false);
   const [scanMessage, setScanMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -98,7 +105,7 @@ export default function Home() {
     fetchTimetable();
   }, [user, activeDay]);
 
-  // STUDENT: Load Attendance Logs directly from Google Sheet
+  // STUDENT: Load Attendance Logs
   useEffect(() => {
     if (!user || user.role !== 'student') return;
     async function loadStudentAttendance() {
@@ -188,7 +195,6 @@ export default function Home() {
 
       setQrCodeUrl(url);
 
-      // Instantly refresh logs
       const logsRes = await fetch(`/api/attendance/logs?subject=${encodeURIComponent(selectedClass.subject)}`);
       const logsData = await logsRes.json();
       if (logsData.success && logsData.logs) {
@@ -238,6 +244,7 @@ export default function Home() {
     setScanMessage(null);
     setAttendanceLogs([]);
     setTeacherLogs([]);
+    setAbsentees([]);
     lastTeacherCoords.current = null;
   };
 
@@ -247,9 +254,15 @@ export default function Home() {
       return;
     }
 
+    if (submittedClasses.includes(selectedClass.id || selectedClass.subject)) {
+      alert('Attendance for this lecture has already been submitted and locked.');
+      return;
+    }
+
     setGeneratingQR(true);
     setQrCodeUrl('');
     setCountdown(30);
+    setAbsentees([]);
 
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser.');
@@ -297,7 +310,6 @@ export default function Home() {
 
           setQrCodeUrl(url);
 
-          // Class ke saare existing logs load kar lo
           const logsRes = await fetch(`/api/attendance/logs?subject=${encodeURIComponent(selectedClass.subject)}`);
           const logsData = await logsRes.json();
           if (logsData.success && logsData.logs) {
@@ -315,6 +327,41 @@ export default function Home() {
       },
       { enableHighAccuracy: true }
     );
+  };
+
+  // TEACHER: Submit Attendance & Lock Session
+  const handleSubmitAttendance = async () => {
+    if (!selectedClass) return;
+    const confirmSubmit = window.confirm('Are you sure you want to lock and submit attendance for this lecture? QR code generation will be closed.');
+    if (!confirmSubmit) return;
+
+    setSubmittingAttendance(true);
+    try {
+      const res = await fetch('/api/attendance/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject: selectedClass.subject,
+          branchSection: selectedClass.room || selectedClass.subject
+        })
+      });
+
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message);
+
+      // Lock QR
+      setQrCodeUrl('');
+      setActiveSessionId('');
+      setSubmittedClasses((prev) => [...prev, selectedClass.id || selectedClass.subject]);
+      if (data.absentees) {
+        setAbsentees(data.absentees);
+      }
+      alert('Attendance submitted successfully! Absentees are now listed.');
+    } catch (err: any) {
+      alert('Error submitting attendance: ' + err.message);
+    } finally {
+      setSubmittingAttendance(false);
+    }
   };
 
   // Student Scanner
@@ -406,6 +453,7 @@ export default function Home() {
   };
 
   const isDark = mounted && theme === 'dark';
+  const isClassSubmitted = selectedClass && submittedClasses.includes(selectedClass.id || selectedClass.subject);
 
   // VIEW 1: AUTHENTICATION LOGIN
   if (!user) {
@@ -579,54 +627,75 @@ export default function Home() {
                 </div>
               ) : (
                 <div className="space-y-2.5 mb-5">
-                  {timetable.map((cls) => (
-                    <div
-                      key={cls.id}
-                      onClick={() => setSelectedClass(cls)}
-                      className={`p-3.5 rounded-xl border cursor-pointer transition flex items-center justify-between ${
-                        selectedClass?.id === cls.id
-                          ? 'border-blue-600 bg-blue-50/40 dark:bg-blue-950/30 ring-1 ring-blue-600'
-                          : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-900'
-                      }`}
-                    >
-                      <div>
-                        <p className="text-sm font-bold text-slate-900 dark:text-white">{cls.subject}</p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                          {cls.time} • {cls.room}
-                        </p>
+                  {timetable.map((cls) => {
+                    const isSubmitted = submittedClasses.includes(cls.id || cls.subject);
+                    return (
+                      <div
+                        key={cls.id}
+                        onClick={() => {
+                          setSelectedClass(cls);
+                          setQrCodeUrl('');
+                          setActiveSessionId('');
+                          setAbsentees([]);
+                        }}
+                        className={`p-3.5 rounded-xl border cursor-pointer transition flex items-center justify-between ${
+                          selectedClass?.id === cls.id
+                            ? 'border-blue-600 bg-blue-50/40 dark:bg-blue-950/30 ring-1 ring-blue-600'
+                            : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-900'
+                        }`}
+                      >
+                        <div>
+                          <p className="text-sm font-bold text-slate-900 dark:text-white">{cls.subject}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                            {cls.time} • {cls.room}
+                          </p>
+                        </div>
+                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ${
+                          isSubmitted
+                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
+                        }`}>
+                          {isSubmitted ? 'Completed' : cls.status}
+                        </span>
                       </div>
-                      <span className="text-[11px] font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">
-                        {cls.status}
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
-              <button
-                onClick={handleGenerateQR}
-                disabled={generatingQR || !selectedClass}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition flex items-center justify-center space-x-2 text-sm shadow-md shadow-blue-500/20 disabled:opacity-50 cursor-pointer"
-              >
-                {generatingQR ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Activating GPS & Generating...</span>
-                  </>
-                ) : (
-                  <>
-                    <QrCode className="w-4 h-4" />
-                    <span>Generate QR</span>
-                  </>
-                )}
-              </button>
+              {/* Generate QR Button (Disabled if already submitted) */}
+              {!isClassSubmitted ? (
+                <button
+                  onClick={handleGenerateQR}
+                  disabled={generatingQR || !selectedClass}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition flex items-center justify-center space-x-2 text-sm shadow-md shadow-blue-500/20 disabled:opacity-50 cursor-pointer"
+                >
+                  {generatingQR ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Activating GPS & Generating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <QrCode className="w-4 h-4" />
+                      <span>Generate QR</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 rounded-xl text-center text-xs font-semibold flex items-center justify-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-600" />
+                  Attendance marked & locked for this session.
+                </div>
+              )}
 
+              {/* QR Container (No Session ID text, with Submit Button) */}
               {qrCodeUrl && (
                 <div className="mt-5 p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 text-center flex flex-col items-center">
                   <img src={qrCodeUrl} alt="Attendance QR" className="rounded-xl shadow-md border mb-3 max-w-[260px] bg-white p-2" />
                   
                   {/* Auto-refresh timer */}
-                  <div className="w-full max-w-[260px]">
+                  <div className="w-full max-w-[260px] mb-4">
                     <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
                       <span className="flex items-center gap-1 font-medium">
                         <RefreshCw className="w-3 h-3 text-blue-500 animate-spin" /> Auto-updates in
@@ -641,7 +710,24 @@ export default function Home() {
                     </div>
                   </div>
 
-                  <p className="text-[11px] text-slate-400 mt-2 font-mono">Session ID: {activeSessionId}</p>
+                  {/* SUBMIT ATTENDANCE BUTTON */}
+                  <button
+                    onClick={handleSubmitAttendance}
+                    disabled={submittingAttendance}
+                    className="w-full max-w-[260px] bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 rounded-xl text-xs transition flex items-center justify-center space-x-2 shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-50"
+                  >
+                    {submittingAttendance ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Locking Attendance...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckSquare className="w-3.5 h-3.5" />
+                        <span>Submit Attendance</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               )}
             </div>
@@ -686,7 +772,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right Column: Live Persistent Attendance Logs */}
+          {/* Right Column: Live Attendance & Absentees Display */}
           <div className="lg:col-span-6">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm h-full flex flex-col">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-6">
@@ -698,13 +784,18 @@ export default function Home() {
                   </span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <span className="text-xs font-semibold px-2.5 py-1 bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-lg">
+                  <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 rounded-lg">
                     {teacherLogs.length} Present
                   </span>
+                  {absentees.length > 0 && (
+                    <span className="text-xs font-semibold px-2.5 py-1 bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400 rounded-lg">
+                      {absentees.length} Absent
+                    </span>
+                  )}
                 </div>
               </div>
 
-              {teacherLogs.length === 0 ? (
+              {teacherLogs.length === 0 && absentees.length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-400">
                   <div className="w-16 h-16 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center mb-3">
                     <UserCheck className="w-8 h-8 text-slate-300 dark:text-slate-600" />
@@ -715,28 +806,68 @@ export default function Home() {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-3 flex-1 overflow-y-auto max-h-[500px]">
-                  {teacherLogs.map((log) => (
-                    <div
-                      key={log.id}
-                      className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between"
-                    >
-                      <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xs font-bold">
-                          ✓
+                <div className="space-y-4 flex-1 overflow-y-auto max-h-[550px]">
+                  {/* Present List */}
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5 flex items-center gap-1.5">
+                      <UserCheck className="w-3.5 h-3.5 text-emerald-500" /> Present Students ({teacherLogs.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {teacherLogs.map((log) => (
+                        <div
+                          key={log.id}
+                          className="p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between"
+                        >
+                          <div className="flex items-center space-x-3">
+                            <div className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xs font-bold">
+                              ✓
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                                {log.studentName} ({log.rollNo})
+                              </p>
+                              <p className="text-[11px] text-slate-400">{log.time}</p>
+                            </div>
+                          </div>
+                          <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/70 px-2.5 py-0.5 rounded-md">
+                            Present
+                          </span>
                         </div>
-                        <div>
-                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                            {log.studentName} ({log.rollNo})
-                          </p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">{log.time}</p>
-                        </div>
-                      </div>
-                      <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/70 px-2.5 py-1 rounded-md">
-                        Verified
-                      </span>
+                      ))}
                     </div>
-                  ))}
+                  </div>
+
+                  {/* Absentees List (Shown when Submit Attendance is clicked) */}
+                  {absentees.length > 0 && (
+                    <div className="pt-3 border-t border-slate-100 dark:border-slate-800">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-red-500 mb-2.5 flex items-center gap-1.5">
+                        <UserX className="w-3.5 h-3.5 text-red-500" /> Absent Students ({absentees.length})
+                      </h4>
+                      <div className="space-y-2">
+                        {absentees.map((abs) => (
+                          <div
+                            key={abs.rollNo}
+                            className="p-3 rounded-xl border border-red-100 dark:border-red-950/50 bg-red-50/50 dark:bg-red-950/20 flex items-center justify-between"
+                          >
+                            <div className="flex items-center space-x-3">
+                              <div className="w-7 h-7 rounded-full bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 flex items-center justify-center text-xs font-bold">
+                                ✕
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                                  {abs.name} ({abs.rollNo})
+                                </p>
+                                <p className="text-[11px] text-red-500">Unverified / Not Scanned</p>
+                              </div>
+                            </div>
+                            <span className="text-xs font-semibold text-red-700 dark:text-red-400 bg-red-100/80 dark:bg-red-950/70 px-2.5 py-0.5 rounded-md">
+                              Absent
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -936,7 +1067,7 @@ export default function Home() {
               </button>
             </div>
 
-            {/* TAB VIEW 1: TODAY (Persistent from Google Sheets) */}
+            {/* TAB VIEW 1: TODAY */}
             {studentTab === 'today' && (
               <div>
                 <div className="grid grid-cols-2 gap-4 mb-6">
@@ -1082,12 +1213,12 @@ export default function Home() {
                       </div>
                     ))}
                   </div>
-                 )}
+                )}
               </div>
             )}
           </div>
         </div>
-       </main>
+      </main>
     </div>
   );
-} 
+}
