@@ -36,25 +36,29 @@ export async function POST(req) {
       );
     }
 
-    // --- 2. SECTION MISMATCH VALIDATION (CRITICAL FIX) ---
-    // Session ka section nikalna: Pehle column se, warna subject se extract karo (e.g. CSIT-2B1)
+    // --- 2. SECTION MISMATCH VALIDATION (CLEAN ENGLISH & ACCURATE SECTION PARSING) ---
     const sessionSubject = activeSession.get('Subject') || '';
-    const subjectMatch = sessionSubject.match(/CSIT-[0-9A-Z]+/i);
+    
+    // Target sections strictly matching academic batches (avoids room numbers like CSIT-703)
+    const sectionPattern = /CSIT-(?:2B1|2B2|2A|2C)/i;
+    const subjectMatch = sessionSubject.match(sectionPattern);
+    
+    const rawSessionSec = activeSession.get('Branch_Section') || activeSession.get('Section') || '';
+    const sessionSecMatch = rawSessionSec.match(sectionPattern);
+
     const sessionSection = (
-      activeSession.get('Branch_Section') ||
-      activeSession.get('Section') ||
-      (subjectMatch ? subjectMatch[0] : '')
+      (sessionSecMatch ? sessionSecMatch[0] : null) ||
+      (subjectMatch ? subjectMatch[0] : rawSessionSec)
     ).trim().toUpperCase();
 
-    // Student ka section
-    const studentSec = (branchSection || '').trim().toUpperCase();
+    const studentSecMatch = (branchSection || '').match(sectionPattern);
+    const studentSec = (studentSecMatch ? studentSecMatch[0] : branchSection || '').trim().toUpperCase();
 
-    // Agar session kisi specific section ke liye hai, toh check karo dono match ho rahe hain ya nahi
     if (sessionSection && studentSec && sessionSection !== studentSec) {
       return NextResponse.json(
         {
           success: false,
-          message: `Access Denied! Ye lecture ${sessionSection} ka hai, jabki aapka section ${studentSec} hai.`,
+          message: `Access Denied: This session is for ${sessionSection}. You are enrolled in ${studentSec}.`,
         },
         { status: 403 }
       );
