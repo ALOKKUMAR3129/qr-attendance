@@ -36,11 +36,35 @@ export async function POST(req) {
       );
     }
 
+    // --- 2. SECTION MISMATCH VALIDATION (CRITICAL FIX) ---
+    // Session ka section nikalna: Pehle column se, warna subject se extract karo (e.g. CSIT-2B1)
+    const sessionSubject = activeSession.get('Subject') || '';
+    const subjectMatch = sessionSubject.match(/CSIT-[0-9A-Z]+/i);
+    const sessionSection = (
+      activeSession.get('Branch_Section') ||
+      activeSession.get('Section') ||
+      (subjectMatch ? subjectMatch[0] : '')
+    ).trim().toUpperCase();
+
+    // Student ka section
+    const studentSec = (branchSection || '').trim().toUpperCase();
+
+    // Agar session kisi specific section ke liye hai, toh check karo dono match ho rahe hain ya nahi
+    if (sessionSection && studentSec && sessionSection !== studentSec) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Access Denied! Ye lecture ${sessionSection} ka hai, jabki aapka section ${studentSec} hai.`,
+        },
+        { status: 403 }
+      );
+    }
+
+    // 3. Geofence Verification
     const teacherLat = parseFloat(activeSession.get('Teacher_Lat'));
     const teacherLng = parseFloat(activeSession.get('Teacher_Lng'));
     const allowedRadius = parseFloat(activeSession.get('Radius_Meters')) || 500;
 
-    // 2. Calculate Distance
     const distance = getDistanceFromLatLonInMeters(
       teacherLat,
       teacherLng,
@@ -48,7 +72,6 @@ export async function POST(req) {
       parseFloat(longitude)
     );
 
-    // 3. Geofence Verification (500 meters)
     if (distance > allowedRadius) {
       return NextResponse.json(
         {
@@ -63,7 +86,7 @@ export async function POST(req) {
     // 4. Duplicate Entry Check
     const logRows = await logSheet.getRows();
     const isAlreadyMarked = logRows.some(
-      (row) => row.get('Session_ID') === sessionId && row.get('Roll_No') === String(rollNo)
+      (row) => row.get('Session_ID') === sessionId && String(row.get('Roll_No')).trim() === String(rollNo).trim()
     );
 
     if (isAlreadyMarked) {
@@ -81,8 +104,8 @@ export async function POST(req) {
       Session_ID: sessionId,
       Roll_No: rollNo,
       Student_Name: studentName || 'Unknown Student',
-      Branch_Section: branchSection || activeSession.get('Branch_Section') || 'N/A',
-      Subject: activeSession.get('Subject') || 'General',
+      Branch_Section: studentSec || sessionSection || 'N/A',
+      Subject: sessionSubject || 'General',
       Distance_M: distance,
       Status: 'PRESENT',
     });
