@@ -18,29 +18,33 @@ export async function GET(req) {
     const rows = await logSheet.getRows();
     let filteredRows = rows;
 
-    const todayDate = new Date().toISOString().split('T')[0];
+    // Current Date in IST
+    const todayIST = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
 
-    if (sessionId) {
-      filteredRows = filteredRows.filter(
-        (row) => String(row.get('Session_ID') || '').trim() === String(sessionId).trim()
-      );
-    } else if (rollNo) {
+    if (rollNo) {
+      // Student view: Unke saare logged records
       filteredRows = filteredRows.filter(
         (row) =>
           String(row.get('Roll_No') || row.get('Roll_Number') || row.get('User_ID') || '').trim() ===
           String(rollNo).trim()
       );
     } else if (teacherSubject) {
-      // Teacher logout ke baad wapas aaye toh bhi aaj ke din ke session ka data mil sake
+      // Teacher view: Aaj ke din is subject/lecture ke saare logs (chahe QR refresh hua ho)
+      const targetSub = teacherSubject.toLowerCase().replace(/[^a-z0-9]/g, '');
       filteredRows = filteredRows.filter((row) => {
         const rowDate = String(row.get('Date') || row.get('Timestamp') || '').split('T')[0].trim();
-        const rowSubject = String(row.get('Subject') || '').toLowerCase();
-        const targetSubject = teacherSubject.toLowerCase();
-        return (
-          rowDate === todayDate &&
-          (rowSubject.includes(targetSubject) || targetSubject.includes(rowSubject))
-        );
+        const rowSub = String(row.get('Subject') || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        return rowDate === todayIST && (rowSub.includes(targetSub) || targetSub.includes(rowSub));
       });
+    } else if (sessionId) {
+      filteredRows = filteredRows.filter(
+        (row) => String(row.get('Session_ID') || '').trim() === String(sessionId).trim()
+      );
     }
 
     const logs = filteredRows.map((row, idx) => {
@@ -58,11 +62,16 @@ export async function GET(req) {
         '';
 
       const rawTime = row.get('Timestamp') || '';
-      let formattedTime = rawTime;
+      let formattedTime = '';
       if (rawTime) {
         try {
-          formattedTime = new Date(rawTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        } catch (e) {
+          formattedTime = new Date(rawTime).toLocaleTimeString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true,
+          });
+        } catch {
           formattedTime = rawTime;
         }
       }
@@ -74,7 +83,6 @@ export async function GET(req) {
         rollNo: sRoll,
         time: formattedTime,
         date: row.get('Date') || '',
-        distance: `${Math.round(parseFloat(row.get('Distance_M')) || 0)}m`,
         status: row.get('Status') || 'Verified',
       };
     });

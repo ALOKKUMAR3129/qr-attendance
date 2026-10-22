@@ -98,7 +98,7 @@ export default function Home() {
     fetchTimetable();
   }, [user, activeDay]);
 
-  // STUDENT: Load Attendance Logs directly from Google Sheet on Login / Refresh
+  // STUDENT: Load Attendance Logs directly from Google Sheet
   useEffect(() => {
     if (!user || user.role !== 'student') return;
     async function loadStudentAttendance() {
@@ -115,17 +115,13 @@ export default function Home() {
     loadStudentAttendance();
   }, [user]);
 
-  // TEACHER: Persistent today's attendance logs load & poll (even after re-login)
+  // TEACHER: Persistent live attendance for selected class
   useEffect(() => {
     if (!user || user.role !== 'teacher' || !selectedClass) return;
 
     const fetchTeacherLogs = async () => {
       try {
-        const query = activeSessionId
-          ? `sessionId=${encodeURIComponent(activeSessionId)}`
-          : `subject=${encodeURIComponent(selectedClass.subject)}`;
-
-        const res = await fetch(`/api/attendance/logs?${query}`);
+        const res = await fetch(`/api/attendance/logs?subject=${encodeURIComponent(selectedClass.subject)}`);
         const data = await res.json();
         if (data.success && data.logs) {
           setTeacherLogs(data.logs);
@@ -136,9 +132,9 @@ export default function Home() {
     };
 
     fetchTeacherLogs();
-    const interval = setInterval(fetchTeacherLogs, 10000);
+    const interval = setInterval(fetchTeacherLogs, 8000);
     return () => clearInterval(interval);
-  }, [user, selectedClass, activeSessionId]);
+  }, [user, selectedClass]);
 
   // 30-Second Countdown & Auto-Refresh for QR
   useEffect(() => {
@@ -157,7 +153,6 @@ export default function Home() {
     return () => clearInterval(timer);
   }, [activeSessionId, selectedClass]);
 
-  // Helper to re-render fresh QR every 30s
   const generateFreshQR = async () => {
     if (!selectedClass || !lastTeacherCoords.current) return;
     try {
@@ -192,6 +187,13 @@ export default function Home() {
       });
 
       setQrCodeUrl(url);
+
+      // Instantly refresh logs
+      const logsRes = await fetch(`/api/attendance/logs?subject=${encodeURIComponent(selectedClass.subject)}`);
+      const logsData = await logsRes.json();
+      if (logsData.success && logsData.logs) {
+        setTeacherLogs(logsData.logs);
+      }
     } catch (err) {
       console.error('Auto QR Refresh error:', err);
     }
@@ -294,6 +296,13 @@ export default function Home() {
           });
 
           setQrCodeUrl(url);
+
+          // Class ke saare existing logs load kar lo
+          const logsRes = await fetch(`/api/attendance/logs?subject=${encodeURIComponent(selectedClass.subject)}`);
+          const logsData = await logsRes.json();
+          if (logsData.success && logsData.logs) {
+            setTeacherLogs(logsData.logs);
+          }
         } catch (err: any) {
           alert('Failed to generate session: ' + err.message);
         } finally {
@@ -301,7 +310,7 @@ export default function Home() {
         }
       },
       () => {
-        alert('Location access is required for attendance geofencing.');
+        alert('Location access is required for attendance verification.');
         setGeneratingQR(false);
       },
       { enableHighAccuracy: true }
@@ -371,7 +380,7 @@ export default function Home() {
           if (data.success) {
             setScanMessage({
               type: 'success',
-              text: `Attendance verified! Distance: ${data.distance}m.`
+              text: 'Attendance verified successfully!'
             });
 
             const logsRes = await fetch(`/api/attendance/logs?rollNo=${encodeURIComponent(user?.id || '')}`);
@@ -616,7 +625,7 @@ export default function Home() {
                 <div className="mt-5 p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 text-center flex flex-col items-center">
                   <img src={qrCodeUrl} alt="Attendance QR" className="rounded-xl shadow-md border mb-3 max-w-[260px] bg-white p-2" />
                   
-                  {/* Auto-refresh timer replacing 500m badge */}
+                  {/* Auto-refresh timer */}
                   <div className="w-full max-w-[260px]">
                     <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
                       <span className="flex items-center gap-1 font-medium">
@@ -720,7 +729,7 @@ export default function Home() {
                           <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
                             {log.studentName} ({log.rollNo})
                           </p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">{log.time} • GPS: {log.distance}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">{log.time}</p>
                         </div>
                       </div>
                       <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/70 px-2.5 py-1 rounded-md">
@@ -1069,7 +1078,6 @@ export default function Home() {
                           <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md">
                             {item.status}
                           </span>
-                          <p className="text-[10px] text-slate-400 mt-0.5">{item.distance}</p>
                         </div>
                       </div>
                     ))}
