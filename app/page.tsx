@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 // @ts-ignore
 import QRCode from 'qrcode';
 import { Html5QrcodeScanner } from 'html5-qrcode';
@@ -12,9 +12,7 @@ import {
   Sun,
   LogOut,
   Clock,
-  MapPin,
   Camera,
-  Download,
   CheckCircle,
   AlertCircle,
   RefreshCw,
@@ -55,12 +53,16 @@ export default function Home() {
 
   const [studentTab, setStudentTab] = useState<'today' | 'semester' | 'history'>('today');
 
+  // Teacher QR & Auto-Refresh State
   const [selectedClass, setSelectedClass] = useState<any>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [generatingQR, setGeneratingQR] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState('');
   const [teacherLogs, setTeacherLogs] = useState<any[]>([]);
+  const [countdown, setCountdown] = useState(30);
+  const lastTeacherCoords = useRef<{ lat: number; lng: number } | null>(null);
 
+  // Student Scanner & Logs State
   const [scannerActive, setScannerActive] = useState(false);
   const [scanMessage, setScanMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [marking, setMarking] = useState(false);
@@ -113,24 +115,87 @@ export default function Home() {
     loadStudentAttendance();
   }, [user]);
 
-  // TEACHER: Poll Active Session Live Attendance every 3 seconds
+  // TEACHER: Persistent today's attendance logs load & poll (even after re-login)
   useEffect(() => {
-    if (!user || user.role !== 'teacher' || !activeSessionId) return;
+    if (!user || user.role !== 'teacher' || !selectedClass) return;
 
-    const interval = setInterval(async () => {
+    const fetchTeacherLogs = async () => {
       try {
-        const res = await fetch(`/api/attendance/logs?sessionId=${encodeURIComponent(activeSessionId)}`);
+        const query = activeSessionId
+          ? `sessionId=${encodeURIComponent(activeSessionId)}`
+          : `subject=${encodeURIComponent(selectedClass.subject)}`;
+
+        const res = await fetch(`/api/attendance/logs?${query}`);
         const data = await res.json();
         if (data.success && data.logs) {
           setTeacherLogs(data.logs);
         }
       } catch (err) {
-        console.error('Failed to poll teacher logs:', err);
+        console.error('Failed to fetch teacher logs:', err);
       }
-    }, 3000);
+    };
 
+    fetchTeacherLogs();
+    const interval = setInterval(fetchTeacherLogs, 10000);
     return () => clearInterval(interval);
-  }, [user, activeSessionId]);
+  }, [user, selectedClass, activeSessionId]);
+
+  // 30-Second Countdown & Auto-Refresh for QR
+  useEffect(() => {
+    if (!activeSessionId) return;
+
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          generateFreshQR();
+          return 30;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [activeSessionId, selectedClass]);
+
+  // Helper to re-render fresh QR every 30s
+  const generateFreshQR = async () => {
+    if (!selectedClass || !lastTeacherCoords.current) return;
+    try {
+      const res = await fetch('/api/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          teacherId: user?.id,
+          subject: selectedClass.subject,
+          branchSection: selectedClass.room || 'Room',
+          latitude: lastTeacherCoords.current.lat,
+          longitude: lastTeacherCoords.current.lng
+        })
+      });
+
+      const data = await res.json();
+      if (!data.success) return;
+
+      setActiveSessionId(data.sessionId);
+
+      const payload = JSON.stringify({
+        sessionId: data.sessionId,
+        subject: selectedClass.subject,
+        room: selectedClass.room,
+        t: Date.now()
+      });
+
+      const url = await QRCode.toDataURL(payload, {
+        width: 280,
+        margin: 2,
+        color: { dark: '#0f172a', light: '#ffffff' }
+      });
+
+      setQrCodeUrl(url);
+    } catch (err) {
+      console.error('Auto QR Refresh error:', err);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -171,6 +236,7 @@ export default function Home() {
     setScanMessage(null);
     setAttendanceLogs([]);
     setTeacherLogs([]);
+    lastTeacherCoords.current = null;
   };
 
   const handleGenerateQR = () => {
@@ -181,7 +247,7 @@ export default function Home() {
 
     setGeneratingQR(true);
     setQrCodeUrl('');
-    setTeacherLogs([]);
+    setCountdown(30);
 
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser.');
@@ -191,6 +257,11 @@ export default function Home() {
 
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
+        lastTeacherCoords.current = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude
+        };
+
         try {
           const res = await fetch('/api/session', {
             method: 'POST',
@@ -212,7 +283,8 @@ export default function Home() {
           const payload = JSON.stringify({
             sessionId: data.sessionId,
             subject: selectedClass.subject,
-            room: selectedClass.room
+            room: selectedClass.room,
+            t: Date.now()
           });
 
           const url = await QRCode.toDataURL(payload, {
@@ -229,13 +301,14 @@ export default function Home() {
         }
       },
       () => {
-        alert('Location access is required to set up the 500m geofence.');
+        alert('Location access is required for attendance geofencing.');
         setGeneratingQR(false);
       },
       { enableHighAccuracy: true }
     );
   };
 
+  // Student Scanner
   useEffect(() => {
     let scanner: any = null;
 
@@ -298,10 +371,9 @@ export default function Home() {
           if (data.success) {
             setScanMessage({
               type: 'success',
-              text: `Attendance verified! You are ${data.distance}m from teacher.`
+              text: `Attendance verified! Distance: ${data.distance}m.`
             });
 
-            // Reload persistent attendance list from sheet
             const logsRes = await fetch(`/api/attendance/logs?rollNo=${encodeURIComponent(user?.id || '')}`);
             const logsData = await logsRes.json();
             if (logsData.success && logsData.logs) {
@@ -334,7 +406,7 @@ export default function Home() {
           <button
             type="button"
             onClick={() => setTheme(isDark ? 'light' : 'dark')}
-            className="p-2.5 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 shadow-sm transition"
+            className="p-2.5 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 shadow-sm transition cursor-pointer"
             title="Toggle theme"
           >
             {isDark ? <Sun className="w-4 h-4 text-yellow-400" /> : <Moon className="w-4 h-4" />}
@@ -354,7 +426,7 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setLoginRole('student')}
-              className={`py-2 text-xs font-semibold rounded-lg flex items-center justify-center space-x-2 transition ${
+              className={`py-2 text-xs font-semibold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer ${
                 loginRole === 'student'
                   ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -366,7 +438,7 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setLoginRole('teacher')}
-              className={`py-2 text-xs font-semibold rounded-lg flex items-center justify-center space-x-2 transition ${
+              className={`py-2 text-xs font-semibold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer ${
                 loginRole === 'teacher'
                   ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -418,7 +490,7 @@ export default function Home() {
             <button
               type="submit"
               disabled={loginLoading}
-              className="w-full mt-2 bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-medium py-2.5 rounded-xl text-sm transition flex items-center justify-center space-x-2 shadow-lg shadow-blue-600/20 disabled:bg-blue-300"
+              className="w-full mt-2 bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-medium py-2.5 rounded-xl text-sm transition flex items-center justify-center space-x-2 shadow-lg shadow-blue-600/20 disabled:bg-blue-300 cursor-pointer"
             >
               {loginLoading ? (
                 <>
@@ -466,14 +538,14 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setTheme(isDark ? 'light' : 'dark')}
-              className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
               title="Toggle theme"
             >
               {isDark ? <Sun className="w-4 h-4 text-yellow-400" /> : <Moon className="w-4 h-4" />}
             </button>
             <button
               onClick={handleLogout}
-              className="p-2 rounded-xl border border-red-200 dark:border-red-900/50 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
+              className="p-2 rounded-xl border border-red-200 dark:border-red-900/50 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
               title="Logout"
             >
               <LogOut className="w-4 h-4" />
@@ -525,7 +597,7 @@ export default function Home() {
               <button
                 onClick={handleGenerateQR}
                 disabled={generatingQR || !selectedClass}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition flex items-center justify-center space-x-2 text-sm shadow-md shadow-blue-500/20 disabled:opacity-50"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition flex items-center justify-center space-x-2 text-sm shadow-md shadow-blue-500/20 disabled:opacity-50 cursor-pointer"
               >
                 {generatingQR ? (
                   <>
@@ -542,12 +614,25 @@ export default function Home() {
 
               {qrCodeUrl && (
                 <div className="mt-5 p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 text-center flex flex-col items-center">
-                  <img src={qrCodeUrl} alt="Attendance QR" className="rounded-xl shadow-md border mb-2 max-w-[260px] bg-white p-2" />
-                  <div className="inline-flex items-center text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/50 px-3 py-1 rounded-full">
-                    <MapPin className="w-3.5 h-3.5 mr-1" />
-                    500m Geofence Active
+                  <img src={qrCodeUrl} alt="Attendance QR" className="rounded-xl shadow-md border mb-3 max-w-[260px] bg-white p-2" />
+                  
+                  {/* Auto-refresh timer replacing 500m badge */}
+                  <div className="w-full max-w-[260px]">
+                    <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
+                      <span className="flex items-center gap-1 font-medium">
+                        <RefreshCw className="w-3 h-3 text-blue-500 animate-spin" /> Auto-updates in
+                      </span>
+                      <span className="font-bold text-blue-600 dark:text-blue-400">{countdown}s</span>
+                    </div>
+                    <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className="bg-blue-600 h-full transition-all duration-1000 ease-linear rounded-full"
+                        style={{ width: `${(countdown / 30) * 100}%` }}
+                      />
+                    </div>
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-1">Session ID: {activeSessionId}</p>
+
+                  <p className="text-[11px] text-slate-400 mt-2 font-mono">Session ID: {activeSessionId}</p>
                 </div>
               )}
             </div>
@@ -559,7 +644,7 @@ export default function Home() {
                   <button
                     key={day}
                     onClick={() => setActiveDay(day)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
                       activeDay === day
                         ? 'bg-blue-600 text-white shadow-sm'
                         : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
@@ -592,7 +677,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right Column: Dynamic Live Attendance Logs */}
+          {/* Right Column: Live Persistent Attendance Logs */}
           <div className="lg:col-span-6">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm h-full flex flex-col">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-6">
@@ -679,14 +764,14 @@ export default function Home() {
           <button
             type="button"
             onClick={() => setTheme(isDark ? 'light' : 'dark')}
-            className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
             title="Toggle theme"
           >
             {isDark ? <Sun className="w-4 h-4 text-yellow-400" /> : <Moon className="w-4 h-4" />}
           </button>
           <button
             onClick={handleLogout}
-            className="p-2 rounded-xl border border-red-200 dark:border-red-900/50 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
+            className="p-2 rounded-xl border border-red-200 dark:border-red-900/50 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
             title="Logout"
           >
             <LogOut className="w-4 h-4" />
@@ -713,7 +798,7 @@ export default function Home() {
                     setScannerActive(true);
                     setScanMessage(null);
                   }}
-                  className="mt-4 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium flex items-center gap-2 shadow-md shadow-blue-500/20"
+                  className="mt-4 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium flex items-center gap-2 shadow-md shadow-blue-500/20 cursor-pointer"
                 >
                   <Camera className="w-4 h-4" />
                   <span>Start Camera</span>
@@ -726,7 +811,7 @@ export default function Home() {
                 <div id="student-reader" className="w-full" />
                 <button
                   onClick={() => setScannerActive(false)}
-                  className="w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold"
+                  className="w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold cursor-pointer"
                 >
                   Cancel Scan
                 </button>
@@ -735,7 +820,7 @@ export default function Home() {
 
             {marking && (
               <div className="mt-4 p-3.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900 rounded-xl text-blue-700 dark:text-blue-300 text-xs flex items-center justify-center gap-2">
-                <RefreshCw className="w-4 h-4 animate-spin" /> Verifying 500m geofence & updating Google Sheets...
+                <RefreshCw className="w-4 h-4 animate-spin" /> Verifying GPS & updating Google Sheets...
               </div>
             )}
 
@@ -764,7 +849,7 @@ export default function Home() {
                 <button
                   key={day}
                   onClick={() => setActiveDay(day)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
                     activeDay === day
                       ? 'bg-blue-600 text-white shadow-sm'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
@@ -812,7 +897,7 @@ export default function Home() {
             <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl mb-6 max-w-xs">
               <button
                 onClick={() => setStudentTab('today')}
-                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition ${
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
                   studentTab === 'today'
                     ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
@@ -822,7 +907,7 @@ export default function Home() {
               </button>
               <button
                 onClick={() => setStudentTab('semester')}
-                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition ${
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
                   studentTab === 'semester'
                     ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
@@ -832,7 +917,7 @@ export default function Home() {
               </button>
               <button
                 onClick={() => setStudentTab('history')}
-                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition ${
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
                   studentTab === 'history'
                     ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'

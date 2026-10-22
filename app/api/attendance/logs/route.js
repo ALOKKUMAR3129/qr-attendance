@@ -6,6 +6,7 @@ export async function GET(req) {
     const { searchParams } = new URL(req.url);
     const sessionId = searchParams.get('sessionId');
     const rollNo = searchParams.get('rollNo');
+    const teacherSubject = searchParams.get('subject');
 
     const doc = await getGoogleSheet();
     const logSheet = doc.sheetsByTitle['Attendance_Logs'];
@@ -17,14 +18,29 @@ export async function GET(req) {
     const rows = await logSheet.getRows();
     let filteredRows = rows;
 
+    const todayDate = new Date().toISOString().split('T')[0];
+
     if (sessionId) {
       filteredRows = filteredRows.filter(
         (row) => String(row.get('Session_ID') || '').trim() === String(sessionId).trim()
       );
     } else if (rollNo) {
       filteredRows = filteredRows.filter(
-        (row) => String(row.get('Roll_No') || row.get('Roll_Number') || row.get('User_ID') || '').trim() === String(rollNo).trim()
+        (row) =>
+          String(row.get('Roll_No') || row.get('Roll_Number') || row.get('User_ID') || '').trim() ===
+          String(rollNo).trim()
       );
+    } else if (teacherSubject) {
+      // Teacher logout ke baad wapas aaye toh bhi aaj ke din ke session ka data mil sake
+      filteredRows = filteredRows.filter((row) => {
+        const rowDate = String(row.get('Date') || row.get('Timestamp') || '').split('T')[0].trim();
+        const rowSubject = String(row.get('Subject') || '').toLowerCase();
+        const targetSubject = teacherSubject.toLowerCase();
+        return (
+          rowDate === todayDate &&
+          (rowSubject.includes(targetSubject) || targetSubject.includes(rowSubject))
+        );
+      });
     }
 
     const logs = filteredRows.map((row, idx) => {
