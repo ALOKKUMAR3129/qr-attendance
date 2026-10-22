@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getGoogleSheet } from '@/lib/googleSheets';
 
-export const dynamic = 'force-dynamic';
-
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
@@ -19,7 +17,6 @@ export async function GET(req) {
     const rows = await logSheet.getRows();
     let filteredRows = rows;
 
-    // Strict session filter taaki purani classes ka data na aaye
     if (sessionId) {
       filteredRows = filteredRows.filter(
         (row) => String(row.get('Session_ID') || '').trim() === String(sessionId).trim()
@@ -31,7 +28,6 @@ export async function GET(req) {
     }
 
     const logs = filteredRows.map((row, idx) => {
-      // Name aur Roll ke alag-alag possible headers check karo
       const sName =
         row.get('Student_Name') ||
         row.get('Name') ||
