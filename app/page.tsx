@@ -49,10 +49,21 @@ export default function Home() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
 
-  const [activeDay, setActiveDay] = useState('Wed');
+  // Real today day calculation (IST)
+  const getTodayDayString = () => {
+    const d = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Asia/Kolkata' }).format(new Date());
+    return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].includes(d) ? d : 'Thu';
+  };
+
+  // State 1: Today's scheduled classes (Fixed to current actual day)
+  const [todayClasses, setTodayClasses] = useState<any[]>([]);
+  const [loadingTodayClasses, setLoadingTodayClasses] = useState(false);
+
+  // State 2: Weekly timetable tab view (Independent of Today's classes)
+  const [activeDay, setActiveDay] = useState(getTodayDayString());
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const [timetable, setTimetable] = useState<any[]>([]);
-  const [loadingTimetable, setLoadingTimetable] = useState(false);
+  const [weeklyTimetable, setWeeklyTimetable] = useState<any[]>([]);
+  const [loadingWeekly, setLoadingWeekly] = useState(false);
 
   const [studentTab, setStudentTab] = useState<'today' | 'semester' | 'history'>('today');
 
@@ -85,28 +96,50 @@ export default function Home() {
     setLoginError('');
   }, [loginRole]);
 
-  // Timetable Fetch
+  // 1. Fetch Today's Classes ONLY ONCE for the current day
   useEffect(() => {
     if (!user) return;
-    async function fetchTimetable() {
-      setLoadingTimetable(true);
+    async function fetchTodaySchedule() {
+      setLoadingTodayClasses(true);
       try {
         const identifier = user?.role === 'teacher' ? user?.id : user?.section;
-        const res = await fetch(`/api/timetable?role=${user?.role}&id=${encodeURIComponent(identifier || '')}&day=${activeDay}`);
+        const currentDay = getTodayDayString();
+        const res = await fetch(`/api/timetable?role=${user?.role}&id=${encodeURIComponent(identifier || '')}&day=${currentDay}`);
         const data = await res.json();
         if (data.success) {
-          setTimetable(data.data);
+          setTodayClasses(data.data);
           if (user?.role === 'teacher' && data.data.length > 0 && !selectedClass) {
             setSelectedClass(data.data[0]);
           }
         }
       } catch (err) {
-        console.error('Failed to load timetable:', err);
+        console.error('Failed to load today classes:', err);
       } finally {
-        setLoadingTimetable(false);
+        setLoadingTodayClasses(false);
       }
     }
-    fetchTimetable();
+    fetchTodaySchedule();
+  }, [user]);
+
+  // 2. Fetch Weekly Timetable whenever activeDay tab changes
+  useEffect(() => {
+    if (!user) return;
+    async function fetchWeeklySchedule() {
+      setLoadingWeekly(true);
+      try {
+        const identifier = user?.role === 'teacher' ? user?.id : user?.section;
+        const res = await fetch(`/api/timetable?role=${user?.role}&id=${encodeURIComponent(identifier || '')}&day=${activeDay}`);
+        const data = await res.json();
+        if (data.success) {
+          setWeeklyTimetable(data.data);
+        }
+      } catch (err) {
+        console.error('Failed to load weekly timetable:', err);
+      } finally {
+        setLoadingWeekly(false);
+      }
+    }
+    fetchWeeklySchedule();
   }, [user, activeDay]);
 
   // STUDENT: Load Attendance Logs
@@ -126,7 +159,7 @@ export default function Home() {
     loadStudentAttendance();
   }, [user]);
 
-  // TEACHER: Persistent live attendance for selected class
+  // TEACHER: Persistent live attendance with Roll-Number Deduplication
   useEffect(() => {
     if (!user || user.role !== 'teacher' || !selectedClass) return;
 
@@ -135,7 +168,17 @@ export default function Home() {
         const res = await fetch(`/api/attendance/logs?subject=${encodeURIComponent(selectedClass.subject)}`);
         const data = await res.json();
         if (data.success && data.logs) {
-          setTeacherLogs(data.logs);
+          // De-duplicate by Roll Number: keep latest scan only
+          const seenRolls = new Set();
+          const uniqueLogs: any[] = [];
+          for (const item of data.logs) {
+            const cleanRoll = String(item.rollNo).trim();
+            if (cleanRoll && !seenRolls.has(cleanRoll)) {
+              seenRolls.add(cleanRoll);
+              uniqueLogs.push(item);
+            }
+          }
+          setTeacherLogs(uniqueLogs);
         }
       } catch (err) {
         console.error('Failed to fetch teacher logs:', err);
@@ -202,7 +245,16 @@ export default function Home() {
       const logsRes = await fetch(`/api/attendance/logs?subject=${encodeURIComponent(selectedClass.subject)}`);
       const logsData = await logsRes.json();
       if (logsData.success && logsData.logs) {
-        setTeacherLogs(logsData.logs);
+        const seenRolls = new Set();
+        const uniqueLogs: any[] = [];
+        for (const item of logsData.logs) {
+          const cleanRoll = String(item.rollNo).trim();
+          if (cleanRoll && !seenRolls.has(cleanRoll)) {
+            seenRolls.add(cleanRoll);
+            uniqueLogs.push(item);
+          }
+        }
+        setTeacherLogs(uniqueLogs);
       }
     } catch (err) {
       console.error('Auto QR Refresh error:', err);
@@ -317,7 +369,16 @@ export default function Home() {
           const logsRes = await fetch(`/api/attendance/logs?subject=${encodeURIComponent(selectedClass.subject)}`);
           const logsData = await logsRes.json();
           if (logsData.success && logsData.logs) {
-            setTeacherLogs(logsData.logs);
+            const seenRolls = new Set();
+            const uniqueLogs: any[] = [];
+            for (const item of logsData.logs) {
+              const cleanRoll = String(item.rollNo).trim();
+              if (cleanRoll && !seenRolls.has(cleanRoll)) {
+                seenRolls.add(cleanRoll);
+                uniqueLogs.push(item);
+              }
+            }
+            setTeacherLogs(uniqueLogs);
           }
         } catch (err: any) {
           alert('Failed to generate session: ' + err.message);
@@ -333,7 +394,7 @@ export default function Home() {
     );
   };
 
-  // TEACHER: Submit Attendance & Fetch Absentees
+  // Submit Attendance & Calculate Absentees
   const handleSubmitAttendance = async () => {
     if (!selectedClass) return;
     const confirmSubmit = window.confirm(
@@ -463,7 +524,7 @@ export default function Home() {
   const isDark = mounted && theme === 'dark';
   const isClassSubmitted = selectedClass && submittedClasses.includes(selectedClass.id || selectedClass.subject);
 
-  // Combined Total List (Absent students ke pass koi extra label nahi hoga)
+  // Combined Total List (Deduplicated)
   const totalStudentsList = [
     ...teacherLogs.map((log) => ({
       rollNo: log.rollNo,
@@ -643,15 +704,15 @@ export default function Home() {
               </div>
               <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3">Today's classes</p>
 
-              {loadingTimetable ? (
-                <div className="py-6 text-center text-xs text-slate-400">Loading schedule...</div>
-              ) : timetable.length === 0 ? (
+              {loadingTodayClasses ? (
+                <div className="py-6 text-center text-xs text-slate-400">Loading today's schedule...</div>
+              ) : todayClasses.length === 0 ? (
                 <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400 mb-4">
                   No classes scheduled in Google Sheet for today.
                 </div>
               ) : (
                 <div className="space-y-2.5 mb-5">
-                  {timetable.map((cls) => {
+                  {todayClasses.map((cls) => {
                     const isSubmitted = submittedClasses.includes(cls.id || cls.subject);
                     return (
                       <div
@@ -757,6 +818,7 @@ export default function Home() {
               )}
             </div>
 
+            {/* Independent Faculty Weekly Timetable */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
               <h3 className="text-base font-bold text-slate-900 dark:text-white mb-4">Faculty Weekly Timetable</h3>
               <div className="flex space-x-2 mb-4 overflow-x-auto pb-1">
@@ -775,11 +837,13 @@ export default function Home() {
                 ))}
               </div>
 
-              {timetable.length === 0 ? (
+              {loadingWeekly ? (
+                <p className="text-xs text-slate-400 py-3 text-center">Loading schedule for {activeDay}...</p>
+              ) : weeklyTimetable.length === 0 ? (
                 <p className="text-xs text-slate-400 py-3 text-center">No schedule found in Google Sheet for {activeDay}.</p>
               ) : (
                 <div className="space-y-3">
-                  {timetable.map((cls) => (
+                  {weeklyTimetable.map((cls) => (
                     <div key={cls.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex items-center space-x-3">
                       <div className="w-4 h-4 rounded-full border-2 border-blue-500" />
                       <div>
@@ -898,7 +962,7 @@ export default function Home() {
                 </div>
               )}
 
-              {/* TAB 2: ABSENT STUDENTS (Clean UI - No unverified text) */}
+              {/* TAB 2: ABSENT STUDENTS */}
               {teacherAttendanceTab === 'absent' && (
                 <div className="flex-1 overflow-y-auto max-h-[500px]">
                   {absentees.length === 0 ? (
@@ -938,7 +1002,7 @@ export default function Home() {
                 </div>
               )}
 
-              {/* TAB 3: TOTAL ATTENDANCE (Clean UI) */}
+              {/* TAB 3: TOTAL ATTENDANCE */}
               {teacherAttendanceTab === 'total' && (
                 <div className="flex-1 overflow-y-auto max-h-[500px]">
                   {totalStudentsList.length === 0 ? (
@@ -1126,15 +1190,15 @@ export default function Home() {
               ))}
             </div>
 
-            {loadingTimetable ? (
+            {loadingWeekly ? (
               <p className="text-xs text-slate-400 py-3 text-center">Loading batch schedule...</p>
-            ) : timetable.length === 0 ? (
+            ) : weeklyTimetable.length === 0 ? (
               <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
                 No classes scheduled in Google Sheet for {activeDay}.
               </div>
             ) : (
               <div className="space-y-3">
-                {timetable.map((cls) => (
+                {weeklyTimetable.map((cls) => (
                   <div key={cls.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex items-center space-x-3">
                     <div className="w-4 h-4 rounded-full border-2 border-slate-300 dark:border-slate-600" />
                     <div>
@@ -1200,7 +1264,7 @@ export default function Home() {
                   <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
                     <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Marked Today</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">
-                      {timetable.filter((cls) =>
+                      {todayClasses.filter((cls) =>
                         attendanceLogs.some((log) => {
                           const s1 = (log.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
                           const s2 = (cls.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -1208,21 +1272,21 @@ export default function Home() {
                         })
                       ).length}
                     </p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">of {timetable.length || 0} classes</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">of {todayClasses.length || 0} classes</p>
                   </div>
                   <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
                     <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Today's Rate</p>
                     <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">
-                      {timetable.length > 0
+                      {todayClasses.length > 0
                         ? Math.round(
-                            (timetable.filter((cls) =>
+                            (todayClasses.filter((cls) =>
                               attendanceLogs.some((log) => {
                                 const s1 = (log.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
                                 const s2 = (cls.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
                                 return s1.includes(s2) || s2.includes(s1);
                               })
                             ).length /
-                              timetable.length) *
+                              todayClasses.length) *
                               100
                           )
                         : 0}
@@ -1232,10 +1296,10 @@ export default function Home() {
                 </div>
 
                 <div className="space-y-3">
-                  {timetable.length === 0 ? (
+                  {todayClasses.length === 0 ? (
                     <p className="text-xs text-slate-400 py-4 text-center">No scheduled lectures today.</p>
                   ) : (
-                    timetable.map((cls) => {
+                    todayClasses.map((cls) => {
                       const isPresent = attendanceLogs.some((log) => {
                         const s1 = (log.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
                         const s2 = (cls.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
