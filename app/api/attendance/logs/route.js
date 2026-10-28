@@ -18,13 +18,8 @@ export async function GET(req) {
     const rows = await logSheet.getRows();
     let filteredRows = rows;
 
-    // Current Date in IST
-    const todayIST = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Kolkata',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date());
+    const now = Date.now();
+    const EIGHTEEN_HOURS_MS = 18 * 60 * 60 * 1000;
 
     if (rollNo) {
       // Student view: Unke saare logged records
@@ -34,12 +29,15 @@ export async function GET(req) {
           String(rollNo).trim()
       );
     } else if (teacherSubject) {
-      // Teacher view: Aaj ke din is subject/lecture ke saare logs (chahe QR refresh hua ho)
+      // Teacher view: Pichhle 18 ghante me is subject ke saare scans (midnight date change resilient)
       const targetSub = teacherSubject.toLowerCase().replace(/[^a-z0-9]/g, '');
       filteredRows = filteredRows.filter((row) => {
-        const rowDate = String(row.get('Date') || row.get('Timestamp') || '').split('T')[0].trim();
         const rowSub = String(row.get('Subject') || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        return rowDate === todayIST && (rowSub.includes(targetSub) || targetSub.includes(rowSub));
+        const rawTime = row.get('Timestamp') || row.get('Date') || '';
+        const logTime = new Date(rawTime).getTime();
+
+        const isRecent = !isNaN(logTime) ? (now - logTime) < EIGHTEEN_HOURS_MS : true;
+        return isRecent && (rowSub.includes(targetSub) || targetSub.includes(rowSub));
       });
     } else if (sessionId) {
       filteredRows = filteredRows.filter(
