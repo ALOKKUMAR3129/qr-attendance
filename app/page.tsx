@@ -348,7 +348,8 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           subject: selectedClass.subject,
-          branchSection: selectedClass.room || selectedClass.subject,
+          branchSection: selectedClass.section || selectedClass.branchSection || '',
+          classTitle: selectedClass.subject + ' ' + (selectedClass.room || '')
         }),
       });
 
@@ -362,8 +363,8 @@ export default function Home() {
       if (data.absentees) {
         setAbsentees(data.absentees);
       }
-      setTeacherAttendanceTab('total');
-      alert('Attendance submitted successfully! Summary is ready.');
+      setTeacherAttendanceTab('absent');
+      alert(`Attendance submitted! Found ${data.absentees?.length || 0} absent students.`);
     } catch (err: any) {
       alert('Error submitting attendance: ' + err.message);
     } finally {
@@ -938,7 +939,7 @@ export default function Home() {
                 </div>
               )}
 
-              {/* TAB 3: TOTAL ATTENDANCE (FULL BATCH LIST) */}
+              {/* TAB 3: TOTAL ATTENDANCE */}
               {teacherAttendanceTab === 'total' && (
                 <div className="flex-1 overflow-y-auto max-h-[500px]">
                   {totalStudentsList.length === 0 ? (

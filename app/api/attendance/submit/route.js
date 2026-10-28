@@ -3,15 +3,15 @@ import { getGoogleSheet } from '@/lib/googleSheets';
 
 export async function POST(req) {
   try {
-    const { subject, branchSection } = await req.json();
+    const { subject, branchSection, classTitle } = await req.json();
 
     const doc = await getGoogleSheet();
-    // Sheet tab dhoondo: Students ya Users ya Enrolled_Students
+    // Google Sheet ke potential student tabs
     const studentsSheet =
       doc.sheetsByTitle['Students'] ||
       doc.sheetsByTitle['Users'] ||
       doc.sheetsByTitle['Student_List'];
-      
+
     const logSheet = doc.sheetsByTitle['Attendance_Logs'];
 
     if (!studentsSheet || !logSheet) {
@@ -24,7 +24,6 @@ export async function POST(req) {
     const studentRows = await studentsSheet.getRows();
     const logRows = await logSheet.getRows();
 
-    // Today in IST
     const todayIST = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Kolkata',
       year: 'numeric',
@@ -32,15 +31,16 @@ export async function POST(req) {
       day: '2-digit',
     }).format(new Date());
 
-    const targetSub = (subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    // Clean subject name (e.g., "Operating Systems" -> "operatingsystems")
+    const cleanSubject = (subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-    // 1. Aaj ke present roll numbers collect karo
+    // 1. Aaj ke present roll numbers nikaalo
     const presentRolls = new Set();
     logRows.forEach((row) => {
       const rowDate = String(row.get('Date') || row.get('Timestamp') || '').split('T')[0].trim();
       const rowSub = String(row.get('Subject') || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-      if (rowDate === todayIST && (rowSub.includes(targetSub) || targetSub.includes(rowSub))) {
+      if (rowDate === todayIST && (rowSub.includes(cleanSubject) || cleanSubject.includes(rowSub))) {
         const roll = String(
           row.get('Roll_No') || row.get('Roll_Number') || row.get('User_ID') || ''
         ).trim();
@@ -48,10 +48,12 @@ export async function POST(req) {
       }
     });
 
-    // Extract Section code (jaise "CSIT-2B1" me se "2b1")
-    const cleanSectionTarget = (branchSection || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '');
+    // 2. Extract section text (e.g. from "CSIT-2B1" or "Operating Systems (CSIT-2B1)")
+    const fullSearchText = `${branchSection || ''} ${classTitle || ''} ${subject || ''}`.toLowerCase();
+    
+    // Detect batch pattern like 2b1, 2b2, etc.
+    const batchMatch = fullSearchText.match(/2b\d|csit[_-]?2b\d/);
+    const targetBatch = batchMatch ? batchMatch[0].replace(/[^a-z0-9]/g, '') : '';
 
     const absentees = [];
 
@@ -83,14 +85,10 @@ export async function POST(req) {
         .toLowerCase()
         .replace(/[^a-z0-9]/g, '');
 
-      // Agar section match ho raha ho (jaise 2b1 in csit2b1)
-      const isSameSection =
-        !cleanSectionTarget ||
-        !sec ||
-        cleanSectionTarget.includes(sec) ||
-        sec.includes(cleanSectionTarget);
+      // Check section match: agar batch detect hua hai toh batch match ho, nahi toh all students
+      const isMatchingSection = !targetBatch || sec.includes(targetBatch) || targetBatch.includes(sec);
 
-      if (roll && isSameSection && !presentRolls.has(roll)) {
+      if (roll && isMatchingSection && !presentRolls.has(roll)) {
         absentees.push({
           rollNo: roll,
           name: name,
