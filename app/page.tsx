@@ -49,19 +49,13 @@ export default function Home() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
 
-  // Real today day calculation (IST)
-  const getTodayDayString = () => {
-    const d = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Asia/Kolkata' }).format(new Date());
-    return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].includes(d) ? d : 'Thu';
-  };
+  // Static initial state to prevent Next.js blocking-prerender-current-time-client build error
+  const [activeDay, setActiveDay] = useState('Thu');
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-  // State 1: Today's scheduled classes (Fixed to current actual day)
+  // Independent states for today's classes and weekly view
   const [todayClasses, setTodayClasses] = useState<any[]>([]);
   const [loadingTodayClasses, setLoadingTodayClasses] = useState(false);
-
-  // State 2: Weekly timetable tab view (Independent of Today's classes)
-  const [activeDay, setActiveDay] = useState(getTodayDayString());
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const [weeklyTimetable, setWeeklyTimetable] = useState<any[]>([]);
   const [loadingWeekly, setLoadingWeekly] = useState(false);
 
@@ -90,20 +84,35 @@ export default function Home() {
   const [marking, setMarking] = useState(false);
   const [attendanceLogs, setAttendanceLogs] = useState<any[]>([]);
 
+  // Set real day on client mount
+  useEffect(() => {
+    try {
+      const d = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Asia/Kolkata' }).format(new Date());
+      if (['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].includes(d)) {
+        setActiveDay(d);
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
     setEmail('');
     setPassword('');
     setLoginError('');
   }, [loginRole]);
 
-  // 1. Fetch Today's Classes ONLY ONCE for the current day
+  // 1. Fetch Today's Classes ONLY for current day (Client Safe)
   useEffect(() => {
     if (!user) return;
     async function fetchTodaySchedule() {
       setLoadingTodayClasses(true);
       try {
+        let currentDay = 'Thu';
+        try {
+          const d = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Asia/Kolkata' }).format(new Date());
+          if (['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].includes(d)) currentDay = d;
+        } catch {}
+
         const identifier = user?.role === 'teacher' ? user?.id : user?.section;
-        const currentDay = getTodayDayString();
         const res = await fetch(`/api/timetable?role=${user?.role}&id=${encodeURIComponent(identifier || '')}&day=${currentDay}`);
         const data = await res.json();
         if (data.success) {
@@ -121,7 +130,7 @@ export default function Home() {
     fetchTodaySchedule();
   }, [user]);
 
-  // 2. Fetch Weekly Timetable whenever activeDay tab changes
+  // 2. Fetch Weekly Timetable on activeDay tab change
   useEffect(() => {
     if (!user) return;
     async function fetchWeeklySchedule() {
@@ -159,7 +168,7 @@ export default function Home() {
     loadStudentAttendance();
   }, [user]);
 
-  // TEACHER: Persistent live attendance with Roll-Number Deduplication
+  // TEACHER: Persistent live attendance with Roll Number Deduplication
   useEffect(() => {
     if (!user || user.role !== 'teacher' || !selectedClass) return;
 
@@ -168,7 +177,6 @@ export default function Home() {
         const res = await fetch(`/api/attendance/logs?subject=${encodeURIComponent(selectedClass.subject)}`);
         const data = await res.json();
         if (data.success && data.logs) {
-          // De-duplicate by Roll Number: keep latest scan only
           const seenRolls = new Set();
           const uniqueLogs: any[] = [];
           for (const item of data.logs) {
@@ -861,7 +869,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right Column: Live Attendance with 3 Day-Style Tabs */}
+          {/* Right Column: Live Attendance with 3 Filter Tabs */}
           <div className="lg:col-span-6">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm h-full flex flex-col">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-4">
@@ -962,7 +970,7 @@ export default function Home() {
                 </div>
               )}
 
-              {/* TAB 2: ABSENT STUDENTS */}
+              {/* TAB 2: ABSENT STUDENTS (Clean UI) */}
               {teacherAttendanceTab === 'absent' && (
                 <div className="flex-1 overflow-y-auto max-h-[500px]">
                   {absentees.length === 0 ? (
@@ -1002,7 +1010,7 @@ export default function Home() {
                 </div>
               )}
 
-              {/* TAB 3: TOTAL ATTENDANCE */}
+              {/* TAB 3: TOTAL ATTENDANCE (Clean UI) */}
               {teacherAttendanceTab === 'total' && (
                 <div className="flex-1 overflow-y-auto max-h-[500px]">
                   {totalStudentsList.length === 0 ? (
