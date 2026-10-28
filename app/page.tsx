@@ -463,7 +463,7 @@ export default function Home() {
   const isDark = mounted && theme === 'dark';
   const isClassSubmitted = selectedClass && submittedClasses.includes(selectedClass.id || selectedClass.subject);
 
-  // Combined Total List
+  // Combined Total List (Absent students ke pass koi extra label nahi hoga)
   const totalStudentsList = [
     ...teacherLogs.map((log) => ({
       rollNo: log.rollNo,
@@ -474,7 +474,7 @@ export default function Home() {
     ...absentees.map((abs) => ({
       rollNo: abs.rollNo,
       name: abs.name,
-      time: 'Not Scanned',
+      time: '',
       status: 'Absent' as const
     }))
   ];
@@ -797,7 +797,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right Column: Live Attendance with 3 Day-Style Tabs (Present, Absent, Total Attendance) */}
+          {/* Right Column: Live Attendance with 3 Day-Style Tabs */}
           <div className="lg:col-span-6">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm h-full flex flex-col">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-4">
@@ -898,7 +898,7 @@ export default function Home() {
                 </div>
               )}
 
-              {/* TAB 2: ABSENT STUDENTS */}
+              {/* TAB 2: ABSENT STUDENTS (Clean UI - No unverified text) */}
               {teacherAttendanceTab === 'absent' && (
                 <div className="flex-1 overflow-y-auto max-h-[500px]">
                   {absentees.length === 0 ? (
@@ -926,7 +926,6 @@ export default function Home() {
                               <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
                                 {abs.name} ({abs.rollNo})
                               </p>
-                              <p className="text-[11px] text-red-500 font-medium">Unverified / Not Scanned</p>
                             </div>
                           </div>
                           <span className="text-xs font-semibold text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-950/70 px-2.5 py-0.5 rounded-md">
@@ -939,7 +938,7 @@ export default function Home() {
                 </div>
               )}
 
-              {/* TAB 3: TOTAL ATTENDANCE */}
+              {/* TAB 3: TOTAL ATTENDANCE (Clean UI) */}
               {teacherAttendanceTab === 'total' && (
                 <div className="flex-1 overflow-y-auto max-h-[500px]">
                   {totalStudentsList.length === 0 ? (
@@ -977,7 +976,9 @@ export default function Home() {
                               <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
                                 {st.name} ({st.rollNo})
                               </p>
-                              <p className="text-[11px] text-slate-400">{st.time}</p>
+                              {st.time && (
+                                <p className="text-[11px] text-slate-400">{st.time}</p>
+                              )}
                             </div>
                           </div>
                           <span
