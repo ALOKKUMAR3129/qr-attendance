@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getGoogleSheet } from '@/lib/googleSheets';
-import { calculateDistance } from '@/lib/geofence';
+import { getDistanceFromLatLonInMeters } from '@/lib/geofence';
 
 export async function POST(req) {
   try {
@@ -24,7 +24,7 @@ export async function POST(req) {
       );
     }
 
-    // 1. Session dhoondo
+    // 1. Session verify karo
     const sessionRows = await sessionSheet.getRows();
     const activeSession = sessionRows.find(
       (r) => String(r.get('Session_ID')).trim() === String(sessionId).trim()
@@ -41,8 +41,8 @@ export async function POST(req) {
     const teacherLng = parseFloat(activeSession.get('Teacher_Lng'));
     const subject = activeSession.get('Subject') || 'General';
 
-    // 2. Geofence check (500m)
-    const distanceMeters = calculateDistance(latitude, longitude, teacherLat, teacherLng);
+    // 2. Geofence calculation (500m)
+    const distanceMeters = getDistanceFromLatLonInMeters(latitude, longitude, teacherLat, teacherLng);
     if (distanceMeters > 500) {
       return NextResponse.json(
         {
@@ -54,7 +54,7 @@ export async function POST(req) {
       );
     }
 
-    // 3. Strict Duplicate Check: Same Date + Same Subject + Same Roll No
+    // 3. Duplicate check (Same Date + Same Subject + Same Student)
     const todayIST = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Kolkata',
       year: 'numeric',
@@ -80,7 +80,7 @@ export async function POST(req) {
       });
     }
 
-    // 4. Save entry in Google Sheets
+    // 4. Save record in Google Sheets
     await logSheet.addRow({
       Timestamp: new Date().toISOString(),
       Date: todayIST,
