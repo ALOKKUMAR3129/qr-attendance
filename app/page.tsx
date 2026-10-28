@@ -23,7 +23,8 @@ import {
   BarChart3,
   History as HistoryIcon,
   CheckSquare,
-  UserX
+  UserX,
+  Users
 } from 'lucide-react';
 
 export default function Home() {
@@ -48,14 +49,14 @@ export default function Home() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
 
-  const [activeDay, setActiveDay] = useState('Thu');
+  const [activeDay, setActiveDay] = useState('Wed');
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const [timetable, setTimetable] = useState<any[]>([]);
   const [loadingTimetable, setLoadingTimetable] = useState(false);
 
   const [studentTab, setStudentTab] = useState<'today' | 'semester' | 'history'>('today');
 
-  // Teacher QR & Auto-Refresh State
+  // Teacher QR & Live Tabs State
   const [selectedClass, setSelectedClass] = useState<any>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [generatingQR, setGeneratingQR] = useState(false);
@@ -63,6 +64,9 @@ export default function Home() {
   const [teacherLogs, setTeacherLogs] = useState<any[]>([]);
   const [countdown, setCountdown] = useState(30);
   const lastTeacherCoords = useRef<{ lat: number; lng: number } | null>(null);
+
+  // Teacher Live Attendance Filter Tabs: 'present' | 'absent' | 'total'
+  const [teacherAttendanceTab, setTeacherAttendanceTab] = useState<'present' | 'absent' | 'total'>('present');
 
   // Submit & Absentees State
   const [submittedClasses, setSubmittedClasses] = useState<string[]>([]);
@@ -81,7 +85,7 @@ export default function Home() {
     setLoginError('');
   }, [loginRole]);
 
-  // Load Timetable
+  // Timetable Fetch
   useEffect(() => {
     if (!user) return;
     async function fetchTimetable() {
@@ -329,7 +333,7 @@ export default function Home() {
     );
   };
 
-  // Submit Attendance & Fetch Absentees
+  // TEACHER: Submit Attendance & Fetch Absentees
   const handleSubmitAttendance = async () => {
     if (!selectedClass) return;
     const confirmSubmit = window.confirm(
@@ -355,11 +359,11 @@ export default function Home() {
       setActiveSessionId('');
       setSubmittedClasses((prev) => [...prev, selectedClass.id || selectedClass.subject]);
 
-      if (data.absentees && data.absentees.length > 0) {
+      if (data.absentees) {
         setAbsentees(data.absentees);
-      } else {
-        alert('All students in this section were present! No absentees.');
       }
+      setTeacherAttendanceTab('total');
+      alert('Attendance submitted successfully! Summary is ready.');
     } catch (err: any) {
       alert('Error submitting attendance: ' + err.message);
     } finally {
@@ -457,6 +461,22 @@ export default function Home() {
 
   const isDark = mounted && theme === 'dark';
   const isClassSubmitted = selectedClass && submittedClasses.includes(selectedClass.id || selectedClass.subject);
+
+  // Combined Total List
+  const totalStudentsList = [
+    ...teacherLogs.map((log) => ({
+      rollNo: log.rollNo,
+      name: log.studentName,
+      time: log.time,
+      status: 'Present' as const
+    })),
+    ...absentees.map((abs) => ({
+      rollNo: abs.rollNo,
+      name: abs.name,
+      time: 'Not Scanned',
+      status: 'Absent' as const
+    }))
+  ];
 
   // VIEW 1: AUTHENTICATION LOGIN
   if (!user) {
@@ -640,6 +660,7 @@ export default function Home() {
                           setQrCodeUrl('');
                           setActiveSessionId('');
                           setAbsentees([]);
+                          setTeacherAttendanceTab('present');
                         }}
                         className={`p-3.5 rounded-xl border cursor-pointer transition flex items-center justify-between ${
                           selectedClass?.id === cls.id
@@ -775,10 +796,10 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right Column: Live Attendance & Absentees Display */}
+          {/* Right Column: Live Attendance with 3 Day-Style Tabs (Present, Absent, Total Attendance) */}
           <div className="lg:col-span-6">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm h-full flex flex-col">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-6">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-4">
                 <div className="flex items-center space-x-2">
                   <UserCheck className="w-5 h-5 text-slate-700 dark:text-slate-300" />
                   <h3 className="text-base font-bold text-slate-900 dark:text-white">Live Attendance</h3>
@@ -790,32 +811,66 @@ export default function Home() {
                   <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 rounded-lg">
                     {teacherLogs.length} Present
                   </span>
-                  {absentees.length > 0 && (
-                    <span className="text-xs font-semibold px-2.5 py-1 bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400 rounded-lg">
-                      {absentees.length} Absent
-                    </span>
-                  )}
                 </div>
               </div>
 
-              {teacherLogs.length === 0 && absentees.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-400">
-                  <div className="w-16 h-16 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center mb-3">
-                    <UserCheck className="w-8 h-8 text-slate-300 dark:text-slate-600" />
-                  </div>
-                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">No attendance marked yet</p>
-                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-xs">
-                    Generate a QR code and student scans will appear here live in Google Sheets.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-4 flex-1 overflow-y-auto max-h-[550px]">
-                  {/* Present Students List */}
-                  <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5 flex items-center gap-1.5">
-                      <UserCheck className="w-3.5 h-3.5 text-emerald-500" /> Present Students ({teacherLogs.length})
-                    </h4>
-                    <div className="space-y-2">
+              {/* 3 TABS (Present | Absent | Total Attendance) */}
+              <div className="flex space-x-2 mb-5 overflow-x-auto pb-1">
+                <button
+                  type="button"
+                  onClick={() => setTeacherAttendanceTab('present')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                    teacherAttendanceTab === 'present'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Present ({teacherLogs.length})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTeacherAttendanceTab('absent')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                    teacherAttendanceTab === 'absent'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <UserX className="w-3.5 h-3.5" />
+                  <span>Absent ({absentees.length})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTeacherAttendanceTab('total')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                    teacherAttendanceTab === 'total'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>Total Attendance ({totalStudentsList.length})</span>
+                </button>
+              </div>
+
+              {/* TAB 1: PRESENT STUDENTS */}
+              {teacherAttendanceTab === 'present' && (
+                <div className="flex-1 overflow-y-auto max-h-[500px]">
+                  {teacherLogs.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center text-center p-8 text-slate-400 h-full">
+                      <div className="w-16 h-16 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center mb-3">
+                        <UserCheck className="w-8 h-8 text-slate-300 dark:text-slate-600" />
+                      </div>
+                      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">No attendance marked yet</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-xs">
+                        Generate a QR code and student scans will appear here live.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
                       {teacherLogs.map((log) => (
                         <div
                           key={log.id}
@@ -838,37 +893,103 @@ export default function Home() {
                         </div>
                       ))}
                     </div>
-                  </div>
+                  )}
+                </div>
+              )}
 
-                  {/* Absent Students List */}
-                  {absentees.length > 0 && (
-                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-red-500 mb-2.5 flex items-center gap-1.5">
-                        <UserX className="w-3.5 h-3.5 text-red-500" /> Absent Students ({absentees.length})
-                      </h4>
-                      <div className="space-y-2">
-                        {absentees.map((abs) => (
-                          <div
-                            key={abs.rollNo}
-                            className="p-3 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50/60 dark:bg-red-950/30 flex items-center justify-between"
-                          >
-                            <div className="flex items-center space-x-3">
-                              <div className="w-7 h-7 rounded-full bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 flex items-center justify-center text-xs font-bold">
-                                ✕
-                              </div>
-                              <div>
-                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                                  {abs.name} ({abs.rollNo})
-                                </p>
-                                <p className="text-[11px] text-red-500 font-medium">Unverified / Not Scanned</p>
-                              </div>
-                            </div>
-                            <span className="text-xs font-semibold text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-950/70 px-2.5 py-0.5 rounded-md">
-                              Absent
-                            </span>
-                          </div>
-                        ))}
+              {/* TAB 2: ABSENT STUDENTS */}
+              {teacherAttendanceTab === 'absent' && (
+                <div className="flex-1 overflow-y-auto max-h-[500px]">
+                  {absentees.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center text-center p-8 text-slate-400 h-full">
+                      <div className="w-16 h-16 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center mb-3">
+                        <UserX className="w-8 h-8 text-slate-300 dark:text-slate-600" />
                       </div>
+                      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">No absentees to display</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-xs">
+                        Click "Submit Attendance" to lock the session and calculate absentees.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {absentees.map((abs) => (
+                        <div
+                          key={abs.rollNo}
+                          className="p-3 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50/60 dark:bg-red-950/30 flex items-center justify-between"
+                        >
+                          <div className="flex items-center space-x-3">
+                            <div className="w-7 h-7 rounded-full bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 flex items-center justify-center text-xs font-bold">
+                              ✕
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                                {abs.name} ({abs.rollNo})
+                              </p>
+                              <p className="text-[11px] text-red-500 font-medium">Unverified / Not Scanned</p>
+                            </div>
+                          </div>
+                          <span className="text-xs font-semibold text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-950/70 px-2.5 py-0.5 rounded-md">
+                            Absent
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 3: TOTAL ATTENDANCE (FULL BATCH LIST) */}
+              {teacherAttendanceTab === 'total' && (
+                <div className="flex-1 overflow-y-auto max-h-[500px]">
+                  {totalStudentsList.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center text-center p-8 text-slate-400 h-full">
+                      <div className="w-16 h-16 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center mb-3">
+                        <Users className="w-8 h-8 text-slate-300 dark:text-slate-600" />
+                      </div>
+                      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total batch list will appear here</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-xs">
+                        Start scanning and click "Submit Attendance" to view complete batch roster.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {totalStudentsList.map((st) => (
+                        <div
+                          key={st.rollNo}
+                          className={`p-3 rounded-xl border flex items-center justify-between ${
+                            st.status === 'Present'
+                              ? 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50'
+                              : 'border-red-200 dark:border-red-900/50 bg-red-50/40 dark:bg-red-950/20'
+                          }`}
+                        >
+                          <div className="flex items-center space-x-3">
+                            <div
+                              className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                                st.status === 'Present'
+                                  ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400'
+                                  : 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400'
+                              }`}
+                            >
+                              {st.status === 'Present' ? '✓' : '✕'}
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                                {st.name} ({st.rollNo})
+                              </p>
+                              <p className="text-[11px] text-slate-400">{st.time}</p>
+                            </div>
+                          </div>
+                          <span
+                            className={`text-xs font-semibold px-2.5 py-0.5 rounded-md ${
+                              st.status === 'Present'
+                                ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/70'
+                                : 'text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-950/70'
+                            }`}
+                          >
+                            {st.status}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
