@@ -4,90 +4,71 @@ import { getGoogleSheet } from '@/lib/googleSheets';
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
-    const sessionId = searchParams.get('sessionId');
     const rollNo = searchParams.get('rollNo');
-    const teacherSubject = searchParams.get('subject');
+    const subject = searchParams.get('subject');
 
     const doc = await getGoogleSheet();
-    const logSheet = doc.sheetsByTitle['Attendance_Logs'];
+    const sheet = doc.sheetsByTitle['Attendance_Logs'];
 
-    if (!logSheet) {
+    if (!sheet) {
       return NextResponse.json({ success: true, logs: [] });
     }
 
-    const rows = await logSheet.getRows();
-    let filteredRows = rows;
+    const rows = await sheet.getRows();
 
+    // 18 hours rolling window for today
     const now = Date.now();
     const EIGHTEEN_HOURS_MS = 18 * 60 * 60 * 1000;
 
-    if (rollNo) {
-      // Student view: Unke saare logged records
-      filteredRows = filteredRows.filter(
-        (row) =>
-          String(row.get('Roll_No') || row.get('Roll_Number') || row.get('User_ID') || '').trim() ===
-          String(rollNo).trim()
-      );
-    } else if (teacherSubject) {
-      // Teacher view: Pichhle 18 ghante me is subject ke saare scans (midnight date change resilient)
-      const targetSub = teacherSubject.toLowerCase().replace(/[^a-z0-9]/g, '');
-      filteredRows = filteredRows.filter((row) => {
-        const rowSub = String(row.get('Subject') || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        const rawTime = row.get('Timestamp') || row.get('Date') || '';
-        const logTime = new Date(rawTime).getTime();
+    // Clean subject query (e.g. "COA Lab (CSIT-2B1)" -> "coalab")
+    const cleanQuery = subject
+      ? subject.toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '')
+      : '';
 
-        const isRecent = !isNaN(logTime) ? (now - logTime) < EIGHTEEN_HOURS_MS : true;
-        return isRecent && (rowSub.includes(targetSub) || targetSub.includes(rowSub));
-      });
-    } else if (sessionId) {
-      filteredRows = filteredRows.filter(
-        (row) => String(row.get('Session_ID') || '').trim() === String(sessionId).trim()
-      );
-    }
+    const logs = [];
 
-    const logs = filteredRows.map((row, idx) => {
-      const sName =
-        row.get('Student_Name') ||
-        row.get('Name') ||
-        row.get('Student') ||
-        'Student';
+    rows.forEach((row, idx) => {
+      const rRoll = String(
+        row.get('Roll_No') || row.get('Roll_Number') || row.get('User_ID') || ''
+      ).trim();
 
-      const sRoll =
-        row.get('Roll_No') ||
-        row.get('Roll_Number') ||
-        row.get('Roll') ||
-        row.get('User_ID') ||
-        '';
+      const rSub = String(row.get('Subject') || '').trim();
+      const cleanRowSub = rSub.toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
 
-      const rawTime = row.get('Timestamp') || '';
-      let formattedTime = '';
-      if (rawTime) {
-        try {
-          formattedTime = new Date(rawTime).toLocaleTimeString('en-IN', {
-            timeZone: 'Asia/Kolkata',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true,
+      const rDate = String(row.get('Date') || '');
+      const rawTimestamp = row.get('Timestamp') || rDate;
+      const logTime = new Date(rawTimestamp).getTime();
+
+      const isRecent = !isNaN(logTime) ? (now - logTime) < EIGHTEEN_HOURS_MS : true;
+
+      // Filter by Student RollNo
+      if (rollNo && rRoll.toLowerCase() === rollNo.toLowerCase()) {
+        logs.push({
+          id: `log_${idx}`,
+          subject: rSub,
+          date: rDate || new Date().toISOString().split('T')[0],
+          time: new Date(rawTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          status: row.get('Status') || 'Present',
+        });
+      }
+      // Filter by Teacher's Class/Subject
+      else if (cleanQuery && isRecent) {
+        if (cleanRowSub.includes(cleanQuery) || cleanQuery.includes(cleanRowSub)) {
+          logs.push({
+            id: `log_${idx}`,
+            rollNo: rRoll,
+            studentName: row.get('Student_Name') || 'Student',
+            subject: rSub,
+            time: new Date(rawTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            status: row.get('Status') || 'Present',
           });
-        } catch {
-          formattedTime = rawTime;
         }
       }
-
-      return {
-        id: (row.get('Session_ID') || 'sess') + '_' + (sRoll || idx),
-        subject: row.get('Subject') || 'General',
-        studentName: sName,
-        rollNo: sRoll,
-        time: formattedTime,
-        date: row.get('Date') || '',
-        status: row.get('Status') || 'Verified',
-      };
     });
 
     return NextResponse.json({ success: true, logs: logs.reverse() });
   } catch (error) {
     console.error('Fetch logs error:', error);
-    return NextResponse.json({ success: false, logs: [], message: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
 }

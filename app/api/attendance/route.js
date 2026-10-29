@@ -25,36 +25,61 @@ export async function POST(req) {
 
     const now = Date.now();
     const EIGHTEEN_HOURS_MS = 18 * 60 * 60 * 1000;
-    const cleanSubject = (subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-    // 1. Recent present roll numbers
+    // Clean subject query (removes brackets like "(CSIT-2B1)" -> "coalab")
+    const cleanSubject = (subject || '')
+      .toLowerCase()
+      .replace(/\(.*?\)/g, '')
+      .replace(/[^a-z0-9]/g, '');
+
+    // 1. Collect roll numbers of students who scanned recently
     const presentRolls = new Set();
+
     logRows.forEach((row) => {
-      const rowSub = String(row.get('Subject') || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      const rawTime = row.get('Timestamp') || row.get('Date') || '';
+      const rawRowSub = String(row.get('Subject') || '').trim();
+      const cleanRowSub = rawRowSub
+        .toLowerCase()
+        .replace(/\(.*?\)/g, '')
+        .replace(/[^a-z0-9]/g, '');
+
+      const rawTime =
+        row.get('Timestamp') ||
+        row.get('Date') ||
+        row.get('Time') ||
+        '';
       const logTime = new Date(rawTime).getTime();
 
-      const isRecent = !isNaN(logTime) ? (now - logTime) < EIGHTEEN_HOURS_MS : true;
+      const isRecent = !isNaN(logTime) ? now - logTime < EIGHTEEN_HOURS_MS : true;
 
-      if (isRecent && (rowSub.includes(cleanSubject) || cleanSubject.includes(rowSub))) {
+      const isSubjectMatch =
+        cleanSubject && cleanRowSub
+          ? cleanRowSub.includes(cleanSubject) || cleanSubject.includes(cleanRowSub)
+          : false;
+
+      if (isRecent && isSubjectMatch) {
         const roll = String(
-          row.get('Roll_No') || row.get('Roll_Number') || row.get('User_ID') || ''
+          row.get('Roll_No') ||
+          row.get('Roll_Number') ||
+          row.get('User_ID') ||
+          row.get('Roll') ||
+          ''
         ).trim();
-        if (roll) presentRolls.add(roll);
+
+        if (roll) {
+          presentRolls.add(roll.toLowerCase());
+        }
       }
     });
 
-    // 2. Identify target batch/section dynamically from class title
-    // Examples: "CSIT-2A", "CSIT-2A1", "CSIT-2B", "CSIT-2B2"
+    // 2. Determine target batch/section dynamically
     const fullSearchText = `${branchSection || ''} ${classTitle || ''} ${subject || ''}`.toUpperCase();
 
-    // Check if it's a specific sub-batch (e.g., 2A1, 2B2, 2H1)
+    // Check for specific sub-batch (e.g. 2B1, 2A2) vs whole section (e.g. 2B, 2A)
     const subBatchMatch = fullSearchText.match(/2[A-H][12]/);
-    // Check if it's an entire section (e.g., 2A, 2B, 2C ... 2H)
     const sectionMatch = fullSearchText.match(/2[A-H]/);
 
-    const targetSubBatch = subBatchMatch ? subBatchMatch[0] : null; // e.g. "2A1"
-    const targetSection = sectionMatch ? sectionMatch[0] : null;   // e.g. "2A"
+    const targetSubBatch = subBatchMatch ? subBatchMatch[0] : null; // e.g. "2B1"
+    const targetSection = sectionMatch ? sectionMatch[0] : null;   // e.g. "2B"
 
     const absentees = [];
 
@@ -79,36 +104,44 @@ export async function POST(req) {
         row.get('Section') ||
         row.get('Batch') ||
         ''
-      ).toUpperCase().replace(/[^A-Z0-9]/g, '');
+      )
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, '');
 
       let isMatching = false;
 
       if (targetSubBatch) {
-        // Lab / Tutorial: only students of that exact batch (e.g. 2A1)
+        // Specific lab/tutorial: only students belonging to that exact sub-batch
         isMatching = sec.includes(targetSubBatch);
       } else if (targetSection) {
-        // Combined Theory Lecture: all students of that section (e.g. 2A includes 2A1 & 2A2)
+        // Combined lecture: students belonging to section (e.g. 2B includes 2B1 and 2B2)
         isMatching = sec.includes(targetSection);
       } else {
         isMatching = true;
       }
 
-      if (roll && isMatching && !presentRolls.has(roll)) {
-        absentees.push({
-          rollNo: roll,
-          name: name,
-          status: 'Absent',
-        });
+      if (roll && isMatching) {
+        if (!presentRolls.has(roll.toLowerCase())) {
+          absentees.push({
+            rollNo: roll,
+            name: name,
+            status: 'Absent',
+          });
+        }
       }
     });
 
     return NextResponse.json({
       success: true,
       message: 'Attendance submitted successfully.',
+      presentCount: presentRolls.size,
       absentees,
     });
   } catch (error) {
     console.error('Submit Attendance Error:', error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: error.message || 'Internal server error.' },
+      { status: 500 }
+    );
   }
 }
