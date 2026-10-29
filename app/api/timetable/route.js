@@ -5,8 +5,8 @@ export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
     const role = searchParams.get('role');
-    const id = searchParams.get('id'); // e.g. "CSIT-2A1" or "T-PARAMITA-01"
-    const day = searchParams.get('day'); // e.g. "Mon"
+    const id = searchParams.get('id'); // e.g. "CSIT-2B1" or "T-PARAMITA-01"
+    const day = searchParams.get('day'); // e.g. "Thu"
 
     const doc = await getGoogleSheet();
     const sheet = doc.sheetsByTitle['Timetable'];
@@ -26,11 +26,11 @@ export async function GET(req) {
       if (role === 'teacher') {
         return rUser === cleanId;
       } else {
-        // Student matching:
-        // Agar exact batch match ho (CSIT2A1 === CSIT2A1)
-        // YA pure section ki class ho (CSIT2A in CSIT2A1)
-        const baseSection = cleanId.slice(0, -1); // "CSIT2A1" -> "CSIT2A"
-        return rUser === cleanId || rUser === baseSection;
+        // STUDENT LOGIC:
+        // Agar exact batch match ho: "CSIT2B1" === "CSIT2B1"
+        // YA pure section ki combined class ho: "CSIT2B" in "CSIT2B1"
+        const baseSection = cleanId.slice(0, -1); // "CSIT2B1" -> "CSIT2B"
+        return rUser === cleanId || rUser === baseSection || rUser.includes(cleanId) || (rUser.includes(baseSection) && !rUser.match(/2[A-H][12]/));
       }
     });
 
