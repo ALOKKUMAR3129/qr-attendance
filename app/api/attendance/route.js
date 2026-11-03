@@ -3,15 +3,19 @@ import { getGoogleSheet } from '@/lib/googleSheets';
 
 export async function POST(req) {
   try {
-    const { subject, branchSection, classTitle } = await req.json();
+    const { subject, branchSection, classTitle, teacherId } = await req.json();
 
     const doc = await getGoogleSheet();
     const studentsSheet =
       doc.sheetsByTitle['Students'] ||
-      doc.sheetsByTitle['Users'] ||
-      doc.sheetsByTitle['Student_List'];
+      doc.sheetsByTitle['STUDENTS'] ||
+      doc.sheetsByTitle['students'] ||
+      doc.sheetsByTitle['STUDENT DATABASE'];
 
-    const logSheet = doc.sheetsByTitle['Attendance_Logs'];
+    const logSheet =
+      doc.sheetsByTitle['Attendance_Logs'] ||
+      doc.sheetsByTitle['attendance_logs'] ||
+      doc.sheetsByTitle['ATTENDANCE_LOGS'];
 
     if (!studentsSheet || !logSheet) {
       return NextResponse.json(
@@ -23,79 +27,69 @@ export async function POST(req) {
     const studentRows = await studentsSheet.getRows();
     const logRows = await logSheet.getRows();
 
-    // 1. Identify Target Batch strictly
-    // Strings like: "DS Training Lab (CSIT-2G1)", "CSIT-2G1", "2G1", "CSIT-2G"
+    // 1. Identify Target Batch (e.g. 2A2, 2B1)
     const fullText = `${subject || ''} ${classTitle || ''} ${branchSection || ''}`.toUpperCase();
-
-    // Check for 2A1 - 2H2
     const subBatchMatch = fullText.match(/2[A-H][12]/);
-    // Check for 2A - 2H (entire section)
     const sectionMatch = fullText.match(/2[A-H](?![0-9])/);
 
-    const targetSubBatch = subBatchMatch ? subBatchMatch[0] : null; // e.g., "2G1"
-    const targetSection = (!targetSubBatch && sectionMatch) ? sectionMatch[0] : (targetSubBatch ? targetSubBatch.slice(0, 2) : null); // e.g., "2G"
+    const targetSubBatch = subBatchMatch ? subBatchMatch[0] : null; // e.g. "2A2"
+    const targetSection = (!targetSubBatch && sectionMatch) ? sectionMatch[0] : (targetSubBatch ? targetSubBatch.slice(0, 2) : null);
 
-    // Base Subject without brackets or section
     const cleanSubject = (subject || '')
       .toLowerCase()
       .replace(/\(.*?\)/g, '')
       .replace(/[^a-z0-9]/g, '');
 
-    // 2. Fetch Present Students from Logs (Today / Recent)
+    // 2. Fetch Present Roll Numbers
     const presentRolls = new Set();
-    const todayIST = new Intl.DateTimeFormat('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    }).format(new Date()); // e.g. "31/10/2026"
-
     logRows.forEach((row) => {
-      const rSub = String(row.get('Subject') || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
-      const rDate = String(row.get('Date') || row.get('Timestamp') || '');
-      const roll = String(row.get('Roll_No') || row.get('Roll_Number') || row.get('User_ID') || '').trim();
+      const rSub = String(row.get('Subject') || row.get('SUBJECT') || '')
+        .toLowerCase()
+        .replace(/\(.*?\)/g, '')
+        .replace(/[^a-z0-9]/g, '');
 
-      // Check subject match
-      const subMatches = !cleanSubject || rSub.includes(cleanSubject) || cleanSubject.includes(rSub);
+      const roll = String(
+        row.get('Roll_No') ||
+        row.get('ROLL NO') ||
+        row.get('Roll No') ||
+        row.get('User_ID') ||
+        ''
+      ).trim();
 
-      // Check if logged today or recent
-      let dateMatches = false;
-      if (rDate.includes(todayIST) || rDate.includes(todayIST.replace(/\//g, '-'))) {
-        dateMatches = true;
-      } else {
-        const parsedTime = new Date(rDate).getTime();
-        if (!isNaN(parsedTime) && (Date.now() - parsedTime < 18 * 60 * 60 * 1000)) {
-          dateMatches = true;
-        } else if (isNaN(parsedTime)) {
-          dateMatches = true; // Fallback if timestamp string format is custom
-        }
-      }
+      const rStatus = String(row.get('Status') || row.get('STATUS') || '').trim().toLowerCase();
 
-      if (roll && subMatches && dateMatches) {
+      const isSubMatch = !cleanSubject || rSub.includes(cleanSubject) || cleanSubject.includes(rSub);
+
+      if (isSubMatch && rStatus === 'present' && roll) {
         presentRolls.add(roll.toLowerCase());
       }
     });
 
-    // 3. Filter only students belonging to this Batch / Section
+    // 3. Filter Students of this Batch / Section
     const absentees = [];
     let matchedTotal = 0;
 
     studentRows.forEach((row) => {
+      // Universal column reading for Students sheet
       const roll = String(
+        row.get('ROLL NO') ||
         row.get('Roll_No') ||
-        row.get('Roll_Number') ||
+        row.get('Roll No') ||
         row.get('User_ID') ||
         row.get('ID') ||
         ''
       ).trim();
 
-      const name =
+      const name = String(
+        row.get('NAME ') ||
+        row.get('NAME') ||
         row.get('Name') ||
         row.get('Student_Name') ||
-        row.get('Student') ||
-        'Student';
+        'Student'
+      ).trim();
 
       const sec = String(
+        row.get('SECTION') ||
         row.get('Branch_Section') ||
         row.get('Section') ||
         row.get('Batch') ||
@@ -105,11 +99,13 @@ export async function POST(req) {
       let isCandidate = false;
 
       if (targetSubBatch) {
-        // Specific lab/tut: only students of 2G1 (e.g. CSIT2G1)
+        // e.g. "CSIT2A2".includes("2A2") -> true
         isCandidate = sec.includes(targetSubBatch);
       } else if (targetSection) {
-        // Combined lecture: only students of section 2G (e.g. CSIT2G1 & CSIT2G2)
+        // e.g. "CSIT2A2".includes("2A") -> true
         isCandidate = sec.includes(targetSection);
+      } else {
+        isCandidate = true;
       }
 
       if (roll && isCandidate) {
@@ -126,7 +122,7 @@ export async function POST(req) {
 
     return NextResponse.json({
       success: true,
-      message: 'Attendance submitted successfully.',
+      message: 'Attendance processed successfully.',
       targetBatch: targetSubBatch || targetSection || 'ALL',
       totalCandidates: matchedTotal,
       presentCount: presentRolls.size,
