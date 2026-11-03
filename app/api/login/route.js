@@ -5,30 +5,50 @@ export async function POST(req) {
   try {
     const { role, email, password } = await req.json();
 
-    if (!email || !password || !role) {
+    if (!email || !password) {
       return NextResponse.json(
-        { success: false, message: 'Email and password are required.' },
+        { success: false, message: 'Email aur Password zaroori hai.' },
         { status: 400 }
       );
     }
 
     const doc = await getGoogleSheet();
-    const sheetTitle = role === 'teacher' ? 'Teachers' : 'Students';
-    const sheet = doc.sheetsByTitle[sheetTitle];
+    const sheet = role === 'teacher'
+      ? (doc.sheetsByTitle['Teachers'] || doc.sheetsByTitle['TEACHERS'] || doc.sheetsByTitle['teachers'])
+      : (doc.sheetsByTitle['Students'] || doc.sheetsByTitle['STUDENTS'] || doc.sheetsByTitle['students']);
 
     if (!sheet) {
       return NextResponse.json(
-        { success: false, message: `Sheet '${sheetTitle}' not found in Google Spreadsheet.` },
+        { success: false, message: `Sheet '${role === 'teacher' ? 'Teachers' : 'Students'}' nahi mili.` },
         { status: 500 }
       );
     }
 
     const rows = await sheet.getRows();
-    const userRow = rows.find(
-      (r) =>
-        r.get('Email')?.trim().toLowerCase() === email.trim().toLowerCase() &&
-        String(r.get('Password') || '').trim() === String(password).trim()
-    );
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
+
+    const userRow = rows.find((row) => {
+      // Email header compatibility: 'Email', 'MAIL ID', 'Mail ID', 'email'
+      const rowEmail = String(
+        row.get('Email') ||
+        row.get('MAIL ID') ||
+        row.get('Mail ID') ||
+        row.get('mail_id') ||
+        row.get('email') ||
+        ''
+      ).trim().toLowerCase();
+
+      // Password header compatibility: 'Password', 'PASSWORD', 'password'
+      const rowPassword = String(
+        row.get('Password') ||
+        row.get('PASSWORD') ||
+        row.get('password') ||
+        ''
+      ).trim();
+
+      return rowEmail === cleanEmail && rowPassword === cleanPassword;
+    });
 
     if (!userRow) {
       return NextResponse.json(
@@ -39,17 +59,32 @@ export async function POST(req) {
 
     const userData = {
       role,
-      email: userRow.get('Email'),
-      name: userRow.get('Name'),
-      id: role === 'teacher' ? userRow.get('Teacher_ID') : userRow.get('Roll_No'),
-      section: role === 'teacher' ? userRow.get('Department') : userRow.get('Branch_Section'),
+      name: userRow.get('Name') || userRow.get('NAME ') || userRow.get('NAME') || 'User',
+      email: cleanEmail,
+      id: String(
+        userRow.get('Roll_No') ||
+        userRow.get('ROLL NO') ||
+        userRow.get('Teacher_ID') ||
+        userRow.get('TEACHER_ID') ||
+        ''
+      ).trim(),
+      section: String(
+        userRow.get('Branch_Section') ||
+        userRow.get('SECTION') ||
+        userRow.get('Department') ||
+        ''
+      ).trim()
     };
 
-    return NextResponse.json({ success: true, user: userData });
+    return NextResponse.json({
+      success: true,
+      message: 'Login successful',
+      user: userData
+    });
   } catch (error) {
     console.error('Login Error:', error);
     return NextResponse.json(
-      { success: false, message: error.message || 'Internal Server Error' },
+      { success: false, message: error.message || 'Internal server error' },
       { status: 500 }
     );
   }
