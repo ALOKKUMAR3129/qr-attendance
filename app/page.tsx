@@ -24,7 +24,8 @@ import {
   History as HistoryIcon,
   CheckSquare,
   UserX,
-  Users
+  Users,
+  UserPlus
 } from 'lucide-react';
 
 export default function Home() {
@@ -72,6 +73,7 @@ export default function Home() {
 
   // Teacher Live Attendance Filter Tabs: 'present' | 'absent' | 'total'
   const [teacherAttendanceTab, setTeacherAttendanceTab] = useState<'present' | 'absent' | 'total'>('present');
+  const [manualLoadingRoll, setManualLoadingRoll] = useState<string | null>(null);
 
   // Submit & Absentees State
   const [submittedClasses, setSubmittedClasses] = useState<string[]>([]);
@@ -168,30 +170,32 @@ export default function Home() {
     loadStudentAttendance();
   }, [user]);
 
-  // TEACHER: Persistent live attendance with Roll Number Deduplication
+  // Helper function to fetch teacher live logs
+  const fetchTeacherLogs = async () => {
+    if (!selectedClass) return;
+    try {
+      const res = await fetch(`/api/attendance/logs?subject=${encodeURIComponent(selectedClass.subject)}`);
+      const data = await res.json();
+      if (data.success && data.logs) {
+        const seenRolls = new Set();
+        const uniqueLogs: any[] = [];
+        for (const item of data.logs) {
+          const cleanRoll = String(item.rollNo).trim();
+          if (cleanRoll && !seenRolls.has(cleanRoll)) {
+            seenRolls.add(cleanRoll);
+            uniqueLogs.push(item);
+          }
+        }
+        setTeacherLogs(uniqueLogs);
+      }
+    } catch (err) {
+      console.error('Failed to fetch teacher logs:', err);
+    }
+  };
+
+  // TEACHER: Persistent live attendance polling
   useEffect(() => {
     if (!user || user.role !== 'teacher' || !selectedClass) return;
-
-    const fetchTeacherLogs = async () => {
-      try {
-        const res = await fetch(`/api/attendance/logs?subject=${encodeURIComponent(selectedClass.subject)}`);
-        const data = await res.json();
-        if (data.success && data.logs) {
-          const seenRolls = new Set();
-          const uniqueLogs: any[] = [];
-          for (const item of data.logs) {
-            const cleanRoll = String(item.rollNo).trim();
-            if (cleanRoll && !seenRolls.has(cleanRoll)) {
-              seenRolls.add(cleanRoll);
-              uniqueLogs.push(item);
-            }
-          }
-          setTeacherLogs(uniqueLogs);
-        }
-      } catch (err) {
-        console.error('Failed to fetch teacher logs:', err);
-      }
-    };
 
     fetchTeacherLogs();
     const interval = setInterval(fetchTeacherLogs, 8000);
@@ -249,21 +253,7 @@ export default function Home() {
       });
 
       setQrCodeUrl(url);
-
-      const logsRes = await fetch(`/api/attendance/logs?subject=${encodeURIComponent(selectedClass.subject)}`);
-      const logsData = await logsRes.json();
-      if (logsData.success && logsData.logs) {
-        const seenRolls = new Set();
-        const uniqueLogs: any[] = [];
-        for (const item of logsData.logs) {
-          const cleanRoll = String(item.rollNo).trim();
-          if (cleanRoll && !seenRolls.has(cleanRoll)) {
-            seenRolls.add(cleanRoll);
-            uniqueLogs.push(item);
-          }
-        }
-        setTeacherLogs(uniqueLogs);
-      }
+      fetchTeacherLogs();
     } catch (err) {
       console.error('Auto QR Refresh error:', err);
     }
@@ -373,21 +363,7 @@ export default function Home() {
           });
 
           setQrCodeUrl(url);
-
-          const logsRes = await fetch(`/api/attendance/logs?subject=${encodeURIComponent(selectedClass.subject)}`);
-          const logsData = await logsRes.json();
-          if (logsData.success && logsData.logs) {
-            const seenRolls = new Set();
-            const uniqueLogs: any[] = [];
-            for (const item of logsData.logs) {
-              const cleanRoll = String(item.rollNo).trim();
-              if (cleanRoll && !seenRolls.has(cleanRoll)) {
-                seenRolls.add(cleanRoll);
-                uniqueLogs.push(item);
-              }
-            }
-            setTeacherLogs(uniqueLogs);
-          }
+          fetchTeacherLogs();
         } catch (err: any) {
           alert('Failed to generate session: ' + err.message);
         } finally {
@@ -418,7 +394,8 @@ export default function Home() {
         body: JSON.stringify({
           subject: selectedClass.subject,
           branchSection: selectedClass.section || selectedClass.branchSection || '',
-          classTitle: selectedClass.subject + ' ' + (selectedClass.room || '')
+          classTitle: selectedClass.subject + ' ' + (selectedClass.room || ''),
+          teacherId: user?.id || ''
         }),
       });
 
@@ -438,6 +415,63 @@ export default function Home() {
       alert('Error submitting attendance: ' + err.message);
     } finally {
       setSubmittingAttendance(false);
+    }
+  };
+
+  // MANUAL OVERRIDE: Mark Absent Student Present Directly
+  const handleManualMarkPresent = async (student: { rollNo: string; name: string }) => {
+    if (!selectedClass) {
+      alert('Please select a class first.');
+      return;
+    }
+
+    setManualLoadingRoll(student.rollNo);
+    try {
+      const res = await fetch('/api/attendance/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rollNo: student.rollNo,
+          studentName: student.name,
+          branchSection: selectedClass.room || selectedClass.section || '',
+          subject: selectedClass.subject,
+          teacherId: user?.id || ''
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to mark attendance manually.');
+      }
+
+      // 1. Remove student from Absent state
+      setAbsentees((prev) => prev.filter((a) => String(a.rollNo).trim() !== String(student.rollNo).trim()));
+
+      // 2. Add student to Present logs state
+      const nowTime = new Intl.DateTimeFormat('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      }).format(new Date());
+
+      setTeacherLogs((prev) => [
+        {
+          id: `manual_${student.rollNo}_${Date.now()}`,
+          rollNo: student.rollNo,
+          studentName: student.name,
+          subject: selectedClass.subject,
+          time: nowTime,
+          status: 'Present'
+        },
+        ...prev.filter((p) => String(p.rollNo).trim() !== String(student.rollNo).trim())
+      ]);
+
+      alert(`✓ ${student.name} marked Present successfully!`);
+    } catch (err: any) {
+      alert(err.message || 'Error marking attendance manually.');
+    } finally {
+      setManualLoadingRoll(null);
     }
   };
 
@@ -869,7 +903,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right Column: Live Attendance with 3 Filter Tabs */}
+          {/* Right Column: Live Attendance with 3 Filter Tabs + Manual Override */}
           <div className="lg:col-span-6">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm h-full flex flex-col">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-4">
@@ -970,7 +1004,7 @@ export default function Home() {
                 </div>
               )}
 
-              {/* TAB 2: ABSENT STUDENTS (Clean UI) */}
+              {/* TAB 2: ABSENT STUDENTS + MANUAL MARK PRESENT BUTTON */}
               {teacherAttendanceTab === 'absent' && (
                 <div className="flex-1 overflow-y-auto max-h-[500px]">
                   {absentees.length === 0 ? (
@@ -985,32 +1019,49 @@ export default function Home() {
                     </div>
                   ) : (
                     <div className="space-y-2.5">
-                      {absentees.map((abs) => (
-                        <div
-                          key={abs.rollNo}
-                          className="p-3 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50/60 dark:bg-red-950/30 flex items-center justify-between"
-                        >
-                          <div className="flex items-center space-x-3">
-                            <div className="w-7 h-7 rounded-full bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 flex items-center justify-center text-xs font-bold">
-                              ✕
+                      {absentees.map((abs) => {
+                        const isLoading = manualLoadingRoll === abs.rollNo;
+                        return (
+                          <div
+                            key={abs.rollNo}
+                            className="p-3 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50/60 dark:bg-red-950/30 flex items-center justify-between gap-2"
+                          >
+                            <div className="flex items-center space-x-3 overflow-hidden">
+                              <div className="w-7 h-7 shrink-0 rounded-full bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 flex items-center justify-center text-xs font-bold">
+                                ✕
+                              </div>
+                              <div className="truncate">
+                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">
+                                  {abs.name} ({abs.rollNo})
+                                </p>
+                                <span className="text-[10px] text-red-600 dark:text-red-400 font-medium">Unscanned</span>
+                              </div>
                             </div>
-                            <div>
-                              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                                {abs.name} ({abs.rollNo})
-                              </p>
-                            </div>
+
+                            {/* MANUAL OVERRIDE BUTTON */}
+                            <button
+                              type="button"
+                              onClick={() => handleManualMarkPresent(abs)}
+                              disabled={isLoading}
+                              className="shrink-0 px-3 py-1.5 text-xs font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-800/80 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition cursor-pointer flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                              title="Manually mark student present"
+                            >
+                              {isLoading ? (
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <UserPlus className="w-3.5 h-3.5" />
+                              )}
+                              <span>Mark Present</span>
+                            </button>
                           </div>
-                          <span className="text-xs font-semibold text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-950/70 px-2.5 py-0.5 rounded-md">
-                            Absent
-                          </span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
               )}
 
-              {/* TAB 3: TOTAL ATTENDANCE (Clean UI) */}
+              {/* TAB 3: TOTAL ATTENDANCE + MANUAL OVERRIDE FOR ABSENT */}
               {teacherAttendanceTab === 'total' && (
                 <div className="flex-1 overflow-y-auto max-h-[500px]">
                   {totalStudentsList.length === 0 ? (
@@ -1025,45 +1076,62 @@ export default function Home() {
                     </div>
                   ) : (
                     <div className="space-y-2.5">
-                      {totalStudentsList.map((st) => (
-                        <div
-                          key={st.rollNo}
-                          className={`p-3 rounded-xl border flex items-center justify-between ${
-                            st.status === 'Present'
-                              ? 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50'
-                              : 'border-red-200 dark:border-red-900/50 bg-red-50/40 dark:bg-red-950/20'
-                          }`}
-                        >
-                          <div className="flex items-center space-x-3">
-                            <div
-                              className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                                st.status === 'Present'
-                                  ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400'
-                                  : 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400'
-                              }`}
-                            >
-                              {st.status === 'Present' ? '✓' : '✕'}
-                            </div>
-                            <div>
-                              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                                {st.name} ({st.rollNo})
-                              </p>
-                              {st.time && (
-                                <p className="text-[11px] text-slate-400">{st.time}</p>
-                              )}
-                            </div>
-                          </div>
-                          <span
-                            className={`text-xs font-semibold px-2.5 py-0.5 rounded-md ${
+                      {totalStudentsList.map((st) => {
+                        const isLoading = manualLoadingRoll === st.rollNo;
+                        return (
+                          <div
+                            key={st.rollNo}
+                            className={`p-3 rounded-xl border flex items-center justify-between gap-2 ${
                               st.status === 'Present'
-                                ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/70'
-                                : 'text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-950/70'
+                                ? 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50'
+                                : 'border-red-200 dark:border-red-900/50 bg-red-50/40 dark:bg-red-950/20'
                             }`}
                           >
-                            {st.status}
-                          </span>
-                        </div>
-                      ))}
+                            <div className="flex items-center space-x-3 overflow-hidden">
+                              <div
+                                className={`w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-xs font-bold ${
+                                  st.status === 'Present'
+                                    ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400'
+                                    : 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400'
+                                }`}
+                              >
+                                {st.status === 'Present' ? '✓' : '✕'}
+                              </div>
+                              <div className="truncate">
+                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">
+                                  {st.name} ({st.rollNo})
+                                </p>
+                                {st.time ? (
+                                  <p className="text-[11px] text-slate-400">{st.time}</p>
+                                ) : (
+                                  <span className="text-[10px] text-red-500">Absent</span>
+                                )}
+                              </div>
+                            </div>
+
+                            {st.status === 'Present' ? (
+                              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-md text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/70 shrink-0">
+                                Present
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleManualMarkPresent(st)}
+                                disabled={isLoading}
+                                className="shrink-0 px-3 py-1.5 text-xs font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-800/80 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition cursor-pointer flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                                title="Manually mark student present"
+                              >
+                                {isLoading ? (
+                                  <RefreshCw className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <UserPlus className="w-3.5 h-3.5" />
+                                )}
+                                <span>Mark Present</span>
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
