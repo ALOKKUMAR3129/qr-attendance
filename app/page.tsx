@@ -71,7 +71,6 @@ export default function Home() {
   const [teacherAttendanceTab, setTeacherAttendanceTab] = useState<'present' | 'absent' | 'total'>('present');
   const [manualLoadingRoll, setManualLoadingRoll] = useState<string | null>(null);
 
-  // Persistent submitted classes in localStorage
   const [submittedClasses, setSubmittedClasses] = useState<string[]>([]);
 
   useEffect(() => {
@@ -160,22 +159,37 @@ export default function Home() {
     fetchWeeklySchedule();
   }, [user, activeDay]);
 
+  // STUDENT: Live Real-Time Attendance Polling (No Logout Required)
+  const loadStudentAttendance = async () => {
+    if (!user || user.role !== 'student') return;
+    try {
+      const res = await fetch(`/api/attendance/logs?rollNo=${encodeURIComponent(user?.id || '')}`);
+      const data = await res.json();
+      if (data.success && data.logs) {
+        // Deduplicate logs by subject: If Present exists, it overrides Absent
+        const logMap = new Map();
+        for (const log of data.logs) {
+          const cleanSub = (log.subject || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
+          const existing = logMap.get(cleanSub);
+          if (!existing || (existing.status !== 'Present' && log.status === 'Present')) {
+            logMap.set(cleanSub, log);
+          }
+        }
+        setAttendanceLogs(Array.from(logMap.values()));
+      }
+    } catch (err) {
+      console.error('Failed to load student attendance:', err);
+    }
+  };
+
   useEffect(() => {
     if (!user || user.role !== 'student') return;
-    async function loadStudentAttendance() {
-      try {
-        const res = await fetch(`/api/attendance/logs?rollNo=${encodeURIComponent(user?.id || '')}`);
-        const data = await res.json();
-        if (data.success && data.logs) {
-          setAttendanceLogs(data.logs);
-        }
-      } catch (err) {
-        console.error('Failed to load student attendance:', err);
-      }
-    }
     loadStudentAttendance();
+    const studentInterval = setInterval(loadStudentAttendance, 6000); // Poll every 6 seconds
+    return () => clearInterval(studentInterval);
   }, [user]);
 
+  // TEACHER: Live Attendance Polling
   const fetchTeacherLogs = async () => {
     if (!selectedClass) return;
     try {
@@ -207,7 +221,7 @@ export default function Home() {
   useEffect(() => {
     if (!user || user.role !== 'teacher' || !selectedClass) return;
     fetchTeacherLogs();
-    const interval = setInterval(fetchTeacherLogs, 8000);
+    const interval = setInterval(fetchTeacherLogs, 7000);
     return () => clearInterval(interval);
   }, [user, selectedClass]);
 
@@ -565,12 +579,7 @@ export default function Home() {
               type: 'success',
               text: 'Attendance verified successfully!'
             });
-
-            const logsRes = await fetch(`/api/attendance/logs?rollNo=${encodeURIComponent(user?.id || '')}`);
-            const logsData = await logsRes.json();
-            if (logsData.success && logsData.logs) {
-              setAttendanceLogs(logsData.logs);
-            }
+            loadStudentAttendance();
           } else {
             setScanMessage({ type: 'error', text: data.message });
           }
@@ -1308,6 +1317,7 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Right Column: Attendance Analytics */}
         <div className="lg:col-span-6 space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
             <div className="flex items-center space-x-2 mb-5 text-blue-600 dark:text-blue-400">
@@ -1434,6 +1444,7 @@ export default function Home() {
               </div>
             )}
 
+            {/* TAB VIEW 2: SEMESTER (Dynamic Percentage) */}
             {studentTab === 'semester' && (
               <div className="space-y-5">
                 {attendanceLogs.length === 0 ? (
@@ -1446,36 +1457,56 @@ export default function Home() {
                   </div>
                 ) : (
                   <>
-                    <div className="p-4 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-sm">
-                      <p className="text-xs font-medium text-blue-100">Overall Semester Aggregate</p>
-                      <div className="flex items-baseline space-x-2 mt-1">
-                        <span className="text-3xl font-extrabold tracking-tight">100%</span>
-                        <span className="text-xs text-blue-100 bg-blue-400/30 px-2 py-0.5 rounded-full">
-                          {attendanceLogs.filter((l) => String(l.status).toLowerCase() === 'present').length} Lecture(s) Verified
-                        </span>
-                      </div>
-                    </div>
+                    {(() => {
+                      const presentCount = attendanceLogs.filter(
+                        (l) => String(l.status).toLowerCase() === 'present'
+                      ).length;
+                      const totalCount = attendanceLogs.length;
+                      const aggregatePercent = totalCount > 0 ? Math.round((presentCount / totalCount) * 100) : 0;
+
+                      return (
+                        <div className={`p-4 rounded-xl text-white shadow-sm ${
+                          aggregatePercent >= 75
+                            ? 'bg-gradient-to-br from-emerald-600 to-teal-700'
+                            : aggregatePercent >= 50
+                            ? 'bg-gradient-to-br from-amber-600 to-orange-700'
+                            : 'bg-gradient-to-br from-red-600 to-rose-700'
+                        }`}>
+                          <p className="text-xs font-medium text-white/80">Overall Semester Aggregate</p>
+                          <div className="flex items-baseline space-x-2 mt-1">
+                            <span className="text-3xl font-extrabold tracking-tight">{aggregatePercent}%</span>
+                            <span className="text-xs text-white bg-black/20 px-2 py-0.5 rounded-full">
+                              {presentCount} of {totalCount} Lecture(s) Attended
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     <div className="space-y-3">
                       <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Marked Lectures</h4>
-                      {attendanceLogs.map((log) => (
-                        <div key={log.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex justify-between items-center">
-                          <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{log.subject}</span>
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${
-                            String(log.status).toLowerCase() === 'present'
-                              ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40'
-                              : 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40'
-                          }`}>
-                            {log.status}
-                          </span>
-                        </div>
-                      ))}
+                      {attendanceLogs.map((log) => {
+                        const isPres = String(log.status).toLowerCase() === 'present';
+                        return (
+                          <div key={log.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex justify-between items-center">
+                            <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{log.subject}</span>
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${
+                              isPres
+                                ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40'
+                                : 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40'
+                            }`}>
+                              {log.status}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </>
                 )}
               </div>
             )}
 
+            {/* TAB VIEW 3: HISTORY */}
             {studentTab === 'history' && (
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Attendance History Logs</h4>

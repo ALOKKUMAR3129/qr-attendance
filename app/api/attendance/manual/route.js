@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getGoogleSheet } from '@/lib/googleSheets';
+import { getGoogleSheet, getSheetByName } from '@/lib/googleSheets';
 
 export async function POST(req) {
   try {
@@ -14,7 +14,7 @@ export async function POST(req) {
     }
 
     const doc = await getGoogleSheet();
-    const logSheet = doc.sheetsByTitle['Attendance_Logs'];
+    const logSheet = getSheetByName(doc, ['Attendance_Logs', 'AttendanceLogs', 'Logs']);
 
     if (!logSheet) {
       return NextResponse.json(
@@ -38,41 +38,42 @@ export async function POST(req) {
     }).format(new Date());
 
     const cleanSubject = (subject || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
+    const cleanRoll = String(rollNo).trim().toLowerCase();
 
-    // 1. Check karo student pehle se Present toh nahi hai
     const existingRows = await logSheet.getRows();
-    const alreadyPresent = existingRows.some((row) => {
+
+    // 1. Agar bache ki Absent wali row already sheet me maujood hai, toh usi row ko update karo
+    let updatedExisting = false;
+
+    for (const row of existingRows) {
       const rRoll = String(row.get('Roll_No') || row.get('ROLL NO') || '').trim().toLowerCase();
-      const rDate = String(row.get('Date') || '');
+      const rDate = String(row.get('Date') || row.get('DATE') || '');
       const rSub = String(row.get('Subject') || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
-      const rStatus = String(row.get('Status') || '').toLowerCase();
 
-      return (
-        rRoll === String(rollNo).trim().toLowerCase() &&
-        rDate.includes(todayIST) &&
-        (rSub.includes(cleanSubject) || cleanSubject.includes(rSub)) &&
-        rStatus === 'present'
-      );
-    });
-
-    if (alreadyPresent) {
-      return NextResponse.json({
-        success: false,
-        message: 'Student already Present mark ho chuka hai!'
-      });
+      if (rRoll === cleanRoll && rDate.includes(todayIST) && (rSub.includes(cleanSubject) || cleanSubject.includes(rSub))) {
+        // Same row ko update karo (No duplicate row)
+        row.set('Status', 'Present');
+        row.set('Time', currentTimeIST);
+        if (teacherId) row.set('Teacher_ID', teacherId);
+        await row.save();
+        updatedExisting = true;
+        break;
+      }
     }
 
-    // 2. Google Sheet me Present row insert karo
-    await logSheet.addRow({
-      Roll_No: String(rollNo).trim(),
-      Student_Name: studentName || 'Student',
-      Branch_Section: branchSection || '',
-      Subject: subject,
-      Date: todayIST,
-      Time: currentTimeIST,
-      Status: 'Present',
-      Teacher_ID: teacherId || ''
-    });
+    // 2. Agar koi row pehle se nahi thi, tabhi nayi row add karo
+    if (!updatedExisting) {
+      await logSheet.addRow({
+        Roll_No: String(rollNo).trim(),
+        Student_Name: studentName || 'Student',
+        Branch_Section: branchSection || '',
+        Subject: subject,
+        Date: todayIST,
+        Time: currentTimeIST,
+        Status: 'Present',
+        Teacher_ID: teacherId || ''
+      });
+    }
 
     return NextResponse.json({
       success: true,
