@@ -181,17 +181,25 @@ export default function Home() {
     try {
       const res = await fetch(`/api/attendance/logs?subject=${encodeURIComponent(selectedClass.subject)}`);
       const data = await res.json();
-      if (data.success && data.logs) {
-        const seenRolls = new Set();
-        const uniqueLogs: any[] = [];
-        for (const item of data.logs) {
-          const cleanRoll = String(item.rollNo).trim();
-          if (cleanRoll && !seenRolls.has(cleanRoll)) {
-            seenRolls.add(cleanRoll);
-            uniqueLogs.push(item);
+      if (data.success) {
+        // Set Present logs (deduplicated)
+        if (data.logs) {
+          const seenRolls = new Set();
+          const uniqueLogs: any[] = [];
+          for (const item of data.logs) {
+            const cleanRoll = String(item.rollNo).trim();
+            if (cleanRoll && !seenRolls.has(cleanRoll)) {
+              seenRolls.add(cleanRoll);
+              uniqueLogs.push(item);
+            }
           }
+          setTeacherLogs(uniqueLogs);
         }
-        setTeacherLogs(uniqueLogs);
+
+        // Set Absent logs (restored from database)
+        if (data.absentees && data.absentees.length > 0) {
+          setAbsentees(data.absentees);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch teacher logs:', err);
@@ -297,7 +305,6 @@ export default function Home() {
     lastTeacherCoords.current = null;
   };
 
-  // Robust normalized check for submitted/completed class
   const cleanSelectedSub = (selectedClass?.subject || '')
     .toLowerCase()
     .replace(/\(.*?\)/g, '')
@@ -414,7 +421,6 @@ export default function Home() {
       setQrCodeUrl('');
       setActiveSessionId('');
 
-      // Lock class by subject
       const subjectKey = selectedClass.subject;
       setSubmittedClasses((prev) => {
         const updated = Array.from(new Set([...prev, subjectKey]));
@@ -425,7 +431,6 @@ export default function Home() {
         return updated;
       });
 
-      // Update current class status to Completed
       setTodayClasses((prev) =>
         prev.map((cls) =>
           cls.subject === selectedClass.subject ? { ...cls, status: 'Completed' } : cls
