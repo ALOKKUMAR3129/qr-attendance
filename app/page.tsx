@@ -50,11 +50,9 @@ export default function Home() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
 
-  // Static initial state to prevent Next.js blocking-prerender-current-time-client build error
   const [activeDay, setActiveDay] = useState('Thu');
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-  // Independent states for today's classes and weekly view
   const [todayClasses, setTodayClasses] = useState<any[]>([]);
   const [loadingTodayClasses, setLoadingTodayClasses] = useState(false);
   const [weeklyTimetable, setWeeklyTimetable] = useState<any[]>([]);
@@ -62,7 +60,6 @@ export default function Home() {
 
   const [studentTab, setStudentTab] = useState<'today' | 'semester' | 'history'>('today');
 
-  // Teacher QR & Live Tabs State
   const [selectedClass, setSelectedClass] = useState<any>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [generatingQR, setGeneratingQR] = useState(false);
@@ -71,11 +68,10 @@ export default function Home() {
   const [countdown, setCountdown] = useState(30);
   const lastTeacherCoords = useRef<{ lat: number; lng: number } | null>(null);
 
-  // Teacher Live Attendance Filter Tabs: 'present' | 'absent' | 'total'
   const [teacherAttendanceTab, setTeacherAttendanceTab] = useState<'present' | 'absent' | 'total'>('present');
   const [manualLoadingRoll, setManualLoadingRoll] = useState<string | null>(null);
 
-  // Persistent submitted classes using localStorage (re-login & reload safe)
+  // Persistent submitted classes in localStorage
   const [submittedClasses, setSubmittedClasses] = useState<string[]>([]);
 
   useEffect(() => {
@@ -95,13 +91,11 @@ export default function Home() {
   const [absentees, setAbsentees] = useState<any[]>([]);
   const [submittingAttendance, setSubmittingAttendance] = useState(false);
 
-  // Student Scanner & Logs State
   const [scannerActive, setScannerActive] = useState(false);
   const [scanMessage, setScanMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [marking, setMarking] = useState(false);
   const [attendanceLogs, setAttendanceLogs] = useState<any[]>([]);
 
-  // Set real day on client mount
   useEffect(() => {
     try {
       const d = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Asia/Kolkata' }).format(new Date());
@@ -117,7 +111,6 @@ export default function Home() {
     setLoginError('');
   }, [loginRole]);
 
-  // 1. Fetch Today's Classes ONLY for current day (Client Safe)
   useEffect(() => {
     if (!user) return;
     async function fetchTodaySchedule() {
@@ -147,7 +140,6 @@ export default function Home() {
     fetchTodaySchedule();
   }, [user]);
 
-  // 2. Fetch Weekly Timetable on activeDay tab change
   useEffect(() => {
     if (!user) return;
     async function fetchWeeklySchedule() {
@@ -168,7 +160,6 @@ export default function Home() {
     fetchWeeklySchedule();
   }, [user, activeDay]);
 
-  // STUDENT: Load Attendance Logs
   useEffect(() => {
     if (!user || user.role !== 'student') return;
     async function loadStudentAttendance() {
@@ -185,7 +176,6 @@ export default function Home() {
     loadStudentAttendance();
   }, [user]);
 
-  // Helper function to fetch teacher live logs
   const fetchTeacherLogs = async () => {
     if (!selectedClass) return;
     try {
@@ -208,19 +198,15 @@ export default function Home() {
     }
   };
 
-  // TEACHER: Persistent live attendance polling
   useEffect(() => {
     if (!user || user.role !== 'teacher' || !selectedClass) return;
-
     fetchTeacherLogs();
     const interval = setInterval(fetchTeacherLogs, 8000);
     return () => clearInterval(interval);
   }, [user, selectedClass]);
 
-  // 30-Second Countdown & Auto-Refresh for QR
   useEffect(() => {
     if (!activeSessionId) return;
-
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
@@ -230,7 +216,6 @@ export default function Home() {
         return prev - 1;
       });
     }, 1000);
-
     return () => clearInterval(timer);
   }, [activeSessionId, selectedClass]);
 
@@ -283,18 +268,13 @@ export default function Home() {
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          role: loginRole,
-          email,
-          password
-        })
+        body: JSON.stringify({ role: loginRole, email, password })
       });
 
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.message || 'Invalid credentials or connection error.');
       }
-
       setUser(data.user);
     } catch (err: any) {
       setLoginError(err.message || 'Login failed.');
@@ -315,8 +295,22 @@ export default function Home() {
     setTeacherLogs([]);
     setAbsentees([]);
     lastTeacherCoords.current = null;
-    // localStorage submittedClasses are preserved across re-login
   };
+
+  // Robust normalized check for submitted/completed class
+  const cleanSelectedSub = (selectedClass?.subject || '')
+    .toLowerCase()
+    .replace(/\(.*?\)/g, '')
+    .replace(/[^a-z0-9]/g, '');
+
+  const isClassSubmitted = Boolean(
+    selectedClass &&
+      (selectedClass.status === 'Completed' ||
+        submittedClasses.some((item) => {
+          const cleanItem = item.toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
+          return cleanItem === cleanSelectedSub;
+        }))
+  );
 
   const handleGenerateQR = () => {
     if (!selectedClass) {
@@ -324,8 +318,7 @@ export default function Home() {
       return;
     }
 
-    const classKey = selectedClass.id || selectedClass.subject;
-    if (submittedClasses.includes(classKey)) {
+    if (isClassSubmitted) {
       alert('Attendance for this lecture has already been submitted and locked.');
       return;
     }
@@ -395,7 +388,6 @@ export default function Home() {
     );
   };
 
-  // Submit Attendance & Calculate Absentees (Persisted in localStorage)
   const handleSubmitAttendance = async () => {
     if (!selectedClass) return;
     const confirmSubmit = window.confirm(
@@ -413,7 +405,7 @@ export default function Home() {
           branchSection: selectedClass.section || selectedClass.branchSection || '',
           classTitle: selectedClass.subject + ' ' + (selectedClass.room || ''),
           teacherId: user?.id || ''
-        }),
+        })
       });
 
       const data = await res.json();
@@ -422,16 +414,23 @@ export default function Home() {
       setQrCodeUrl('');
       setActiveSessionId('');
 
-      // Lock class and save to localStorage
-      const classKey = selectedClass.id || selectedClass.subject;
+      // Lock class by subject
+      const subjectKey = selectedClass.subject;
       setSubmittedClasses((prev) => {
-        const updated = Array.from(new Set([...prev, classKey]));
+        const updated = Array.from(new Set([...prev, subjectKey]));
         if (typeof window !== 'undefined') {
           const todayKey = `submitted_${new Date().toISOString().split('T')[0]}`;
           localStorage.setItem(todayKey, JSON.stringify(updated));
         }
         return updated;
       });
+
+      // Update current class status to Completed
+      setTodayClasses((prev) =>
+        prev.map((cls) =>
+          cls.subject === selectedClass.subject ? { ...cls, status: 'Completed' } : cls
+        )
+      );
 
       if (data.absentees) {
         setAbsentees(data.absentees);
@@ -445,7 +444,6 @@ export default function Home() {
     }
   };
 
-  // MANUAL OVERRIDE: Mark Absent Student Present Directly
   const handleManualMarkPresent = async (student: { rollNo: string; name: string }) => {
     if (!selectedClass) {
       alert('Please select a class first.');
@@ -471,10 +469,8 @@ export default function Home() {
         throw new Error(data.message || 'Failed to mark attendance manually.');
       }
 
-      // 1. Remove student from Absent state
       setAbsentees((prev) => prev.filter((a) => String(a.rollNo).trim() !== String(student.rollNo).trim()));
 
-      // 2. Add student to Present logs state
       const nowTime = new Intl.DateTimeFormat('en-IN', {
         timeZone: 'Asia/Kolkata',
         hour: '2-digit',
@@ -502,7 +498,6 @@ export default function Home() {
     }
   };
 
-  // Student Scanner
   useEffect(() => {
     let scanner: any = null;
 
@@ -591,9 +586,7 @@ export default function Home() {
   };
 
   const isDark = mounted && theme === 'dark';
-  const isClassSubmitted = selectedClass && submittedClasses.includes(selectedClass.id || selectedClass.subject);
 
-  // Combined Total List (Deduplicated)
   const totalStudentsList = [
     ...teacherLogs.map((log) => ({
       rollNo: log.rollNo,
@@ -609,7 +602,6 @@ export default function Home() {
     }))
   ];
 
-  // VIEW 1: AUTHENTICATION LOGIN
   if (!user) {
     return (
       <main className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4 transition-colors">
@@ -721,7 +713,6 @@ export default function Home() {
     );
   }
 
-  // VIEW 2: TEACHER DASHBOARD
   if (user.role === 'teacher') {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans transition-colors">
@@ -782,7 +773,13 @@ export default function Home() {
               ) : (
                 <div className="space-y-2.5 mb-5">
                   {todayClasses.map((cls) => {
-                    const isSubmitted = submittedClasses.includes(cls.id || cls.subject);
+                    const cleanClsSub = cls.subject.toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
+                    const isSubmitted =
+                      cls.status === 'Completed' ||
+                      submittedClasses.some(
+                        (s) => s.toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '') === cleanClsSub
+                      );
+
                     return (
                       <div
                         key={cls.id}
@@ -849,7 +846,6 @@ export default function Home() {
                 <div className="mt-5 p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 text-center flex flex-col items-center">
                   <img src={qrCodeUrl} alt="Attendance QR" className="rounded-xl shadow-md border mb-3 max-w-[260px] bg-white p-2" />
                   
-                  {/* Auto-refresh timer */}
                   <div className="w-full max-w-[260px] mb-4">
                     <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
                       <span className="flex items-center gap-1 font-medium">
@@ -865,7 +861,6 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* Submit Attendance Button */}
                   <button
                     onClick={handleSubmitAttendance}
                     disabled={submittingAttendance}
@@ -887,7 +882,6 @@ export default function Home() {
               )}
             </div>
 
-            {/* Independent Faculty Weekly Timetable */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
               <h3 className="text-base font-bold text-slate-900 dark:text-white mb-4">Faculty Weekly Timetable</h3>
               <div className="flex space-x-2 mb-4 overflow-x-auto pb-1">
@@ -930,7 +924,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right Column: Live Attendance with 3 Filter Tabs + Manual Override */}
           <div className="lg:col-span-6">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm h-full flex flex-col">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-4">
@@ -948,7 +941,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* 3 TABS (Present | Absent | Total Attendance) */}
               <div className="flex space-x-2 mb-5 overflow-x-auto pb-1">
                 <button
                   type="button"
@@ -990,7 +982,6 @@ export default function Home() {
                 </button>
               </div>
 
-              {/* TAB 1: PRESENT STUDENTS */}
               {teacherAttendanceTab === 'present' && (
                 <div className="flex-1 overflow-y-auto max-h-[500px]">
                   {teacherLogs.length === 0 ? (
@@ -1031,7 +1022,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* TAB 2: ABSENT STUDENTS + MANUAL MARK PRESENT BUTTON */}
               {teacherAttendanceTab === 'absent' && (
                 <div className="flex-1 overflow-y-auto max-h-[500px]">
                   {absentees.length === 0 ? (
@@ -1065,7 +1055,6 @@ export default function Home() {
                               </div>
                             </div>
 
-                            {/* MANUAL OVERRIDE BUTTON */}
                             <button
                               type="button"
                               onClick={() => handleManualMarkPresent(abs)}
@@ -1088,7 +1077,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* TAB 3: TOTAL ATTENDANCE + MANUAL OVERRIDE FOR ABSENT */}
               {teacherAttendanceTab === 'total' && (
                 <div className="flex-1 overflow-y-auto max-h-[500px]">
                   {totalStudentsList.length === 0 ? (
@@ -1170,7 +1158,6 @@ export default function Home() {
     );
   }
 
-  // VIEW 3: STUDENT DASHBOARD
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans transition-colors">
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 px-6 py-3 flex items-center justify-between sticky top-0 z-10">
@@ -1319,7 +1306,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Right Column: Attendance Analytics */}
         <div className="lg:col-span-6 space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
             <div className="flex items-center space-x-2 mb-5 text-blue-600 dark:text-blue-400">
@@ -1360,7 +1346,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* TAB VIEW 1: TODAY */}
             {studentTab === 'today' && (
               <div>
                 <div className="grid grid-cols-2 gap-4 mb-6">
@@ -1435,7 +1420,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* TAB VIEW 2: SEMESTER */}
             {studentTab === 'semester' && (
               <div className="space-y-5">
                 {attendanceLogs.length === 0 ? (
@@ -1474,7 +1458,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* TAB VIEW 3: HISTORY */}
             {studentTab === 'history' && (
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Attendance History Logs</h4>
