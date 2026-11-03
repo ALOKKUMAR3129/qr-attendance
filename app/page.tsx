@@ -182,7 +182,6 @@ export default function Home() {
       const res = await fetch(`/api/attendance/logs?subject=${encodeURIComponent(selectedClass.subject)}`);
       const data = await res.json();
       if (data.success) {
-        // Set Present logs (deduplicated)
         if (data.logs) {
           const seenRolls = new Set();
           const uniqueLogs: any[] = [];
@@ -196,7 +195,6 @@ export default function Home() {
           setTeacherLogs(uniqueLogs);
         }
 
-        // Set Absent logs (restored from database)
         if (data.absentees && data.absentees.length > 0) {
           setAbsentees(data.absentees);
         }
@@ -820,7 +818,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Generate QR Button */}
               {!isClassSubmitted ? (
                 <button
                   onClick={handleGenerateQR}
@@ -846,7 +843,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* QR Container */}
               {qrCodeUrl && (
                 <div className="mt-5 p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 text-center flex flex-col items-center">
                   <img src={qrCodeUrl} alt="Attendance QR" className="rounded-xl shadow-md border mb-3 max-w-[260px] bg-white p-2" />
@@ -1163,6 +1159,7 @@ export default function Home() {
     );
   }
 
+  // VIEW 3: STUDENT DASHBOARD
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans transition-colors">
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 px-6 py-3 flex items-center justify-between sticky top-0 z-10">
@@ -1351,6 +1348,7 @@ export default function Home() {
               </button>
             </div>
 
+            {/* TAB VIEW 1: TODAY (With Proper Absent Badge) */}
             {studentTab === 'today' && (
               <div>
                 <div className="grid grid-cols-2 gap-4 mb-6">
@@ -1361,7 +1359,7 @@ export default function Home() {
                         attendanceLogs.some((log) => {
                           const s1 = (log.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
                           const s2 = (cls.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-                          return s1.includes(s2) || s2.includes(s1);
+                          return (s1.includes(s2) || s2.includes(s1)) && String(log.status).toLowerCase() === 'present';
                         })
                       ).length}
                     </p>
@@ -1376,7 +1374,7 @@ export default function Home() {
                               attendanceLogs.some((log) => {
                                 const s1 = (log.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
                                 const s2 = (cls.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-                                return s1.includes(s2) || s2.includes(s1);
+                                return (s1.includes(s2) || s2.includes(s1)) && String(log.status).toLowerCase() === 'present';
                               })
                             ).length /
                               todayClasses.length) *
@@ -1396,8 +1394,17 @@ export default function Home() {
                       const isPresent = attendanceLogs.some((log) => {
                         const s1 = (log.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
                         const s2 = (cls.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-                        return s1.includes(s2) || s2.includes(s1);
+                        return (s1.includes(s2) || s2.includes(s1)) && String(log.status).toLowerCase() === 'present';
                       });
+
+                      const isExplicitAbsent = attendanceLogs.some((log) => {
+                        const s1 = (log.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                        const s2 = (cls.subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                        return (s1.includes(s2) || s2.includes(s1)) && String(log.status).toLowerCase() === 'absent';
+                      });
+
+                      const isLockedAbsent = (cls.status === 'Completed' || cls.status === 'Locked') && !isPresent;
+                      const isAbsent = isExplicitAbsent || isLockedAbsent;
 
                       return (
                         <div key={cls.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-800/40 flex items-center justify-between">
@@ -1409,13 +1416,15 @@ export default function Home() {
                             </div>
                           </div>
                           <span
-                            className={`text-xs font-medium px-2.5 py-1 rounded-lg ${
+                            className={`text-xs font-semibold px-2.5 py-1 rounded-lg ${
                               isPresent
-                                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold'
+                                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
+                                : isAbsent
+                                ? 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300'
                                 : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
                             }`}
                           >
-                            {isPresent ? 'Present' : cls.status}
+                            {isPresent ? 'Present' : isAbsent ? 'Absent' : cls.status}
                           </span>
                         </div>
                       );
@@ -1442,7 +1451,7 @@ export default function Home() {
                       <div className="flex items-baseline space-x-2 mt-1">
                         <span className="text-3xl font-extrabold tracking-tight">100%</span>
                         <span className="text-xs text-blue-100 bg-blue-400/30 px-2 py-0.5 rounded-full">
-                          {attendanceLogs.length} Lecture(s) Verified
+                          {attendanceLogs.filter((l) => String(l.status).toLowerCase() === 'present').length} Lecture(s) Verified
                         </span>
                       </div>
                     </div>
@@ -1452,8 +1461,12 @@ export default function Home() {
                       {attendanceLogs.map((log) => (
                         <div key={log.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex justify-between items-center">
                           <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{log.subject}</span>
-                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md">
-                            Present
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${
+                            String(log.status).toLowerCase() === 'present'
+                              ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40'
+                              : 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40'
+                          }`}>
+                            {log.status}
                           </span>
                         </div>
                       ))}
@@ -1480,14 +1493,20 @@ export default function Home() {
                     {attendanceLogs.map((item) => (
                       <div key={item.id} className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between shadow-sm">
                         <div className="flex items-center space-x-3">
-                          <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                          <CheckCircle className={`w-4 h-4 shrink-0 ${
+                            String(item.status).toLowerCase() === 'present' ? 'text-emerald-500' : 'text-red-500'
+                          }`} />
                           <div>
                             <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{item.subject}</p>
                             <p className="text-[11px] text-slate-400 mt-0.5">{item.date} • {item.time}</p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md">
+                          <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-md ${
+                            String(item.status).toLowerCase() === 'present'
+                              ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40'
+                              : 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40'
+                          }`}>
                             {item.status}
                           </span>
                         </div>
