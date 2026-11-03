@@ -94,9 +94,9 @@ export default function Home() {
   const [absentees, setAbsentees] = useState<any[]>([]);
   const [submittingAttendance, setSubmittingAttendance] = useState(false);
 
-  // Teacher History Modal State
+  // Teacher History Modal State (Static initial value to prevent Next.js prerender build error)
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
-  const [historyDate, setHistoryDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [historyDate, setHistoryDate] = useState('');
   const [historyLectures, setHistoryLectures] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [selectedHistoryLecture, setSelectedHistoryLecture] = useState<any>(null);
@@ -106,8 +106,12 @@ export default function Home() {
   const [marking, setMarking] = useState(false);
   const [attendanceLogs, setAttendanceLogs] = useState<any[]>([]);
 
+  // Set real day and default date on client mount
   useEffect(() => {
     try {
+      const todayIso = new Date().toISOString().split('T')[0];
+      setHistoryDate(todayIso);
+
       const d = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Asia/Kolkata' }).format(new Date());
       if (['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].includes(d)) {
         setActiveDay(d);
@@ -170,7 +174,7 @@ export default function Home() {
     fetchWeeklySchedule();
   }, [user, activeDay]);
 
-  // STUDENT: Live Real-Time Polling
+  // STUDENT: Live Real-Time Polling (No logout needed for updates)
   const loadStudentAttendance = async () => {
     if (!user || user.role !== 'student') return;
     try {
@@ -237,7 +241,7 @@ export default function Home() {
 
   // Fetch Teacher Historical Attendance by Date
   const fetchHistoryByDate = async (targetDate: string) => {
-    if (!user || user.role !== 'teacher') return;
+    if (!user || user.role !== 'teacher' || !targetDate) return;
     setLoadingHistory(true);
     setSelectedHistoryLecture(null);
     try {
@@ -257,7 +261,7 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if (historyModalOpen) {
+    if (historyModalOpen && historyDate) {
       fetchHistoryByDate(historyDate);
     }
   }, [historyModalOpen, historyDate]);
@@ -1219,7 +1223,6 @@ export default function Home() {
         {historyModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
-              {/* Modal Header */}
               <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
                 <div className="flex items-center space-x-2 text-slate-800 dark:text-white">
                   <Calendar className="w-5 h-5 text-blue-600" />
@@ -1241,9 +1244,7 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Modal Body */}
               <div className="p-6 flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-12 gap-6">
-                {/* Left side: Lectures List on chosen date */}
                 <div className="md:col-span-5 space-y-3">
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Lectures on this Date</p>
                   {loadingHistory ? (
@@ -1280,7 +1281,6 @@ export default function Home() {
                   )}
                 </div>
 
-                {/* Right side: Selected Lecture Students Roster */}
                 <div className="md:col-span-7 flex flex-col">
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
                     Student Details {selectedHistoryLecture ? `(${selectedHistoryLecture.subject})` : ''}
@@ -1492,6 +1492,7 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Right Column: Attendance Analytics */}
         <div className="lg:col-span-6 space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
             <div className="flex items-center space-x-2 mb-5 text-blue-600 dark:text-blue-400">
