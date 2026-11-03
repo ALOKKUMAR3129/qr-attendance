@@ -25,7 +25,10 @@ import {
   CheckSquare,
   UserX,
   Users,
-  UserPlus
+  UserPlus,
+  Calendar,
+  ChevronRight,
+  X
 } from 'lucide-react';
 
 export default function Home() {
@@ -71,6 +74,7 @@ export default function Home() {
   const [teacherAttendanceTab, setTeacherAttendanceTab] = useState<'present' | 'absent' | 'total'>('present');
   const [manualLoadingRoll, setManualLoadingRoll] = useState<string | null>(null);
 
+  // Persistent submitted classes in localStorage
   const [submittedClasses, setSubmittedClasses] = useState<string[]>([]);
 
   useEffect(() => {
@@ -89,6 +93,13 @@ export default function Home() {
 
   const [absentees, setAbsentees] = useState<any[]>([]);
   const [submittingAttendance, setSubmittingAttendance] = useState(false);
+
+  // Teacher History Modal State
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [historyDate, setHistoryDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [historyLectures, setHistoryLectures] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [selectedHistoryLecture, setSelectedHistoryLecture] = useState<any>(null);
 
   const [scannerActive, setScannerActive] = useState(false);
   const [scanMessage, setScanMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -159,14 +170,13 @@ export default function Home() {
     fetchWeeklySchedule();
   }, [user, activeDay]);
 
-  // STUDENT: Live Real-Time Attendance Polling (No Logout Required)
+  // STUDENT: Live Real-Time Polling
   const loadStudentAttendance = async () => {
     if (!user || user.role !== 'student') return;
     try {
       const res = await fetch(`/api/attendance/logs?rollNo=${encodeURIComponent(user?.id || '')}`);
       const data = await res.json();
       if (data.success && data.logs) {
-        // Deduplicate logs by subject: If Present exists, it overrides Absent
         const logMap = new Map();
         for (const log of data.logs) {
           const cleanSub = (log.subject || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
@@ -185,11 +195,11 @@ export default function Home() {
   useEffect(() => {
     if (!user || user.role !== 'student') return;
     loadStudentAttendance();
-    const studentInterval = setInterval(loadStudentAttendance, 6000); // Poll every 6 seconds
-    return () => clearInterval(studentInterval);
+    const interval = setInterval(loadStudentAttendance, 6000);
+    return () => clearInterval(interval);
   }, [user]);
 
-  // TEACHER: Live Attendance Polling
+  // TEACHER: Fetch Live Attendance Logs
   const fetchTeacherLogs = async () => {
     if (!selectedClass) return;
     try {
@@ -224,6 +234,33 @@ export default function Home() {
     const interval = setInterval(fetchTeacherLogs, 7000);
     return () => clearInterval(interval);
   }, [user, selectedClass]);
+
+  // Fetch Teacher Historical Attendance by Date
+  const fetchHistoryByDate = async (targetDate: string) => {
+    if (!user || user.role !== 'teacher') return;
+    setLoadingHistory(true);
+    setSelectedHistoryLecture(null);
+    try {
+      const res = await fetch(`/api/teacher/history?teacherId=${encodeURIComponent(user.id)}&date=${targetDate}`);
+      const data = await res.json();
+      if (data.success) {
+        setHistoryLectures(data.history || []);
+        if (data.history && data.history.length > 0) {
+          setSelectedHistoryLecture(data.history[0]);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch history:', err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  useEffect(() => {
+    if (historyModalOpen) {
+      fetchHistoryByDate(historyDate);
+    }
+  }, [historyModalOpen, historyDate]);
 
   useEffect(() => {
     if (!activeSessionId) return;
@@ -725,6 +762,7 @@ export default function Home() {
     );
   }
 
+  // VIEW 2: TEACHER DASHBOARD
   if (user.role === 'teacher') {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col font-sans transition-colors">
@@ -740,6 +778,17 @@ export default function Home() {
           </div>
 
           <div className="flex items-center space-x-3">
+            {/* DATE-WISE HISTORY BUTTON */}
+            <button
+              type="button"
+              onClick={() => setHistoryModalOpen(true)}
+              className="px-3 py-1.5 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 transition cursor-pointer text-xs font-semibold flex items-center gap-1.5 shadow-sm"
+              title="View Date-wise Class History"
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Past Records</span>
+            </button>
+
             <div className="flex items-center space-x-2 bg-slate-100/80 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1.5 rounded-xl">
               <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-600 dark:text-blue-300 text-xs font-bold">
                 T
@@ -934,6 +983,7 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Right Column: Live Attendance */}
           <div className="lg:col-span-6">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm h-full flex flex-col">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-4">
@@ -1164,6 +1214,131 @@ export default function Home() {
             </div>
           </div>
         </main>
+
+        {/* DATE-WISE ATTENDANCE HISTORY MODAL */}
+        {historyModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+              {/* Modal Header */}
+              <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <div className="flex items-center space-x-2 text-slate-800 dark:text-white">
+                  <Calendar className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-base font-bold">Past Attendance History</h3>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="date"
+                    value={historyDate}
+                    onChange={(e) => setHistoryDate(e.target.value)}
+                    className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    onClick={() => setHistoryModalOpen(false)}
+                    className="p-1.5 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-12 gap-6">
+                {/* Left side: Lectures List on chosen date */}
+                <div className="md:col-span-5 space-y-3">
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Lectures on this Date</p>
+                  {loadingHistory ? (
+                    <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
+                      <RefreshCw className="w-5 h-5 animate-spin text-blue-500" />
+                      <span>Loading records...</span>
+                    </div>
+                  ) : historyLectures.length === 0 ? (
+                    <div className="p-6 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
+                      No lecture records found for {historyDate}.
+                    </div>
+                  ) : (
+                    historyLectures.map((lec, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => setSelectedHistoryLecture(lec)}
+                        className={`p-3.5 rounded-xl border cursor-pointer transition flex items-center justify-between ${
+                          selectedHistoryLecture?.subject === lec.subject
+                            ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 ring-1 ring-blue-600'
+                            : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 hover:border-slate-300'
+                        }`}
+                      >
+                        <div>
+                          <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{lec.subject}</p>
+                          <div className="flex items-center gap-2 mt-1 text-[11px] font-semibold">
+                            <span className="text-emerald-600 dark:text-emerald-400">{lec.presentCount} Present</span>
+                            <span>•</span>
+                            <span className="text-red-600 dark:text-red-400">{lec.absentCount} Absent</span>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-400" />
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Right side: Selected Lecture Students Roster */}
+                <div className="md:col-span-7 flex flex-col">
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                    Student Details {selectedHistoryLecture ? `(${selectedHistoryLecture.subject})` : ''}
+                  </p>
+
+                  {!selectedHistoryLecture ? (
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-center text-xs text-slate-400">
+                      Select a lecture from the left to view complete student roster.
+                    </div>
+                  ) : (
+                    <div className="space-y-2 overflow-y-auto max-h-[420px] pr-1">
+                      {selectedHistoryLecture.students.map((st: any) => {
+                        const isPres = st.status.toLowerCase() === 'present';
+                        return (
+                          <div
+                            key={st.id}
+                            className={`p-3 rounded-xl border flex items-center justify-between ${
+                              isPres
+                                ? 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50'
+                                : 'border-red-200 dark:border-red-900/40 bg-red-50/50 dark:bg-red-950/20'
+                            }`}
+                          >
+                            <div className="flex items-center space-x-3">
+                              <div
+                                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                                  isPres
+                                    ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400'
+                                    : 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400'
+                                }`}
+                              >
+                                {isPres ? '✓' : '✕'}
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                  {st.name} ({st.rollNo})
+                                </p>
+                                {st.time && <p className="text-[10px] text-slate-400">{st.time}</p>}
+                              </div>
+                            </div>
+                            <span
+                              className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ${
+                                isPres
+                                  ? 'bg-emerald-100/70 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                                  : 'bg-red-100/70 text-red-700 dark:bg-red-950 dark:text-red-300'
+                              }`}
+                            >
+                              {st.status}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1317,7 +1492,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Right Column: Attendance Analytics */}
         <div className="lg:col-span-6 space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
             <div className="flex items-center space-x-2 mb-5 text-blue-600 dark:text-blue-400">
@@ -1358,7 +1532,7 @@ export default function Home() {
               </button>
             </div>
 
-            {/* TAB VIEW 1: TODAY (With Proper Absent Badge) */}
+            {/* TAB VIEW 1: TODAY */}
             {studentTab === 'today' && (
               <div>
                 <div className="grid grid-cols-2 gap-4 mb-6">
@@ -1444,7 +1618,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* TAB VIEW 2: SEMESTER (Dynamic Percentage) */}
+            {/* TAB VIEW 2: SEMESTER */}
             {studentTab === 'semester' && (
               <div className="space-y-5">
                 {attendanceLogs.length === 0 ? (
