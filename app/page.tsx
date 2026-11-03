@@ -75,8 +75,23 @@ export default function Home() {
   const [teacherAttendanceTab, setTeacherAttendanceTab] = useState<'present' | 'absent' | 'total'>('present');
   const [manualLoadingRoll, setManualLoadingRoll] = useState<string | null>(null);
 
-  // Submit & Absentees State
+  // Persistent submitted classes using localStorage (re-login & reload safe)
   const [submittedClasses, setSubmittedClasses] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const todayKey = `submitted_${new Date().toISOString().split('T')[0]}`;
+        const saved = localStorage.getItem(todayKey);
+        if (saved) {
+          setSubmittedClasses(JSON.parse(saved));
+        }
+      } catch (err) {
+        console.error('Failed to load submitted classes from localStorage:', err);
+      }
+    }
+  }, []);
+
   const [absentees, setAbsentees] = useState<any[]>([]);
   const [submittingAttendance, setSubmittingAttendance] = useState(false);
 
@@ -300,6 +315,7 @@ export default function Home() {
     setTeacherLogs([]);
     setAbsentees([]);
     lastTeacherCoords.current = null;
+    // localStorage submittedClasses are preserved across re-login
   };
 
   const handleGenerateQR = () => {
@@ -308,7 +324,8 @@ export default function Home() {
       return;
     }
 
-    if (submittedClasses.includes(selectedClass.id || selectedClass.subject)) {
+    const classKey = selectedClass.id || selectedClass.subject;
+    if (submittedClasses.includes(classKey)) {
       alert('Attendance for this lecture has already been submitted and locked.');
       return;
     }
@@ -378,7 +395,7 @@ export default function Home() {
     );
   };
 
-  // Submit Attendance & Calculate Absentees
+  // Submit Attendance & Calculate Absentees (Persisted in localStorage)
   const handleSubmitAttendance = async () => {
     if (!selectedClass) return;
     const confirmSubmit = window.confirm(
@@ -404,7 +421,17 @@ export default function Home() {
 
       setQrCodeUrl('');
       setActiveSessionId('');
-      setSubmittedClasses((prev) => [...prev, selectedClass.id || selectedClass.subject]);
+
+      // Lock class and save to localStorage
+      const classKey = selectedClass.id || selectedClass.subject;
+      setSubmittedClasses((prev) => {
+        const updated = Array.from(new Set([...prev, classKey]));
+        if (typeof window !== 'undefined') {
+          const todayKey = `submitted_${new Date().toISOString().split('T')[0]}`;
+          localStorage.setItem(todayKey, JSON.stringify(updated));
+        }
+        return updated;
+      });
 
       if (data.absentees) {
         setAbsentees(data.absentees);
