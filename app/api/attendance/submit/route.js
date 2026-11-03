@@ -1,17 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getGoogleSheet } from '@/lib/googleSheets';
+import { getGoogleSheet, getSheetByName } from '@/lib/googleSheets';
 
 export async function POST(req) {
   try {
-    const { subject, branchSection, classTitle } = await req.json();
+    const { subject, branchSection, classTitle, teacherId } = await req.json();
 
     const doc = await getGoogleSheet();
-    const studentsSheet =
-      doc.sheetsByTitle['Students'] ||
-      doc.sheetsByTitle['Users'] ||
-      doc.sheetsByTitle['Student_List'];
-
-    const logSheet = doc.sheetsByTitle['Attendance_Logs'];
+    const studentsSheet = getSheetByName(doc, ['Students', 'STUDENTS', 'Student Database']);
+    const logSheet = getSheetByName(doc, ['Attendance_Logs', 'AttendanceLogs', 'Logs']);
 
     if (!studentsSheet || !logSheet) {
       return NextResponse.json(
@@ -23,76 +19,83 @@ export async function POST(req) {
     const studentRows = await studentsSheet.getRows();
     const logRows = await logSheet.getRows();
 
-    const now = Date.now();
-    const EIGHTEEN_HOURS_MS = 18 * 60 * 60 * 1000;
-    const cleanSubject = (subject || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    // 1. Identify Target Batch (e.g. "2A2", "2B1") or entire Section ("2A", "2B")
+    const fullText = `${subject || ''} ${classTitle || ''} ${branchSection || ''}`.toUpperCase();
+    const subBatchMatch = fullText.match(/2[A-H][12]/);
+    const sectionMatch = fullText.match(/2[A-H](?![0-9])/);
 
-    // 1. Haal hi me scan kiye hue present roll numbers
+    const targetSubBatch = subBatchMatch ? subBatchMatch[0] : null; // e.g. "2A2"
+    const targetSection = (!targetSubBatch && sectionMatch) ? sectionMatch[0] : (targetSubBatch ? targetSubBatch.slice(0, 2) : null);
+
+    const cleanSubject = (subject || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
+
+    // 2. Fetch Present Roll Numbers
     const presentRolls = new Set();
     logRows.forEach((row) => {
-      const rowSub = String(row.get('Subject') || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      const rawTime = row.get('Timestamp') || row.get('Date') || '';
-      const logTime = new Date(rawTime).getTime();
+      const rSub = String(row.get('Subject') || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
+      const roll = String(row.get('Roll_No') || row.get('ROLL NO') || '').trim();
+      const rStatus = String(row.get('Status') || '').trim().toLowerCase();
 
-      const isRecent = !isNaN(logTime) ? (now - logTime) < EIGHTEEN_HOURS_MS : true;
-
-      if (isRecent && (rowSub.includes(cleanSubject) || cleanSubject.includes(rowSub))) {
-        const roll = String(
-          row.get('Roll_No') || row.get('Roll_Number') || row.get('User_ID') || ''
-        ).trim();
-        if (roll) presentRolls.add(roll);
+      const isSubMatch = !cleanSubject || rSub.includes(cleanSubject) || cleanSubject.includes(rSub);
+      if (isSubMatch && rStatus === 'present' && roll) {
+        presentRolls.add(roll.toLowerCase());
       }
     });
 
-    // 2. Batch section match karo (e.g., "CSIT-2B1" / "2B1")
-    const fullSearchText = `${branchSection || ''} ${classTitle || ''} ${subject || ''}`.toLowerCase();
-    const batchMatch = fullSearchText.match(/2b\d|csit[_-]?2b\d/);
-    const targetBatch = batchMatch ? batchMatch[0].replace(/[^a-z0-9]/g, '') : '';
-
     const absentees = [];
+    let matchedTotal = 0;
 
     studentRows.forEach((row) => {
-      const role = String(row.get('Role') || 'student').toLowerCase();
-      if (role !== 'student') return;
-
       const roll = String(
+        row.get('ROLL NO') ||
         row.get('Roll_No') ||
-        row.get('Roll_Number') ||
+        row.get('Roll No') ||
         row.get('User_ID') ||
-        row.get('ID') ||
-        row.get('Roll') ||
         ''
       ).trim();
 
-      const name =
-        row.get('Student_Name') ||
+      const name = String(
+        row.get('NAME ') ||
+        row.get('NAME') ||
         row.get('Name') ||
-        row.get('Student') ||
-        'Student';
+        row.get('Student_Name') ||
+        'Student'
+      ).trim();
 
       const sec = String(
-        row.get('Section') ||
+        row.get('SECTION') ||
         row.get('Branch_Section') ||
-        row.get('Batch') ||
+        row.get('Section') ||
         ''
-      )
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '');
+      ).toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-      const isMatchingSection = !targetBatch || sec.includes(targetBatch) || targetBatch.includes(sec);
+      let isCandidate = false;
+      if (targetSubBatch) {
+        isCandidate = sec.includes(targetSubBatch);
+      } else if (targetSection) {
+        isCandidate = sec.includes(targetSection);
+      } else {
+        isCandidate = true;
+      }
 
-      if (roll && isMatchingSection && !presentRolls.has(roll)) {
-        absentees.push({
-          rollNo: roll,
-          name: name,
-          status: 'Absent',
-        });
+      if (roll && isCandidate) {
+        matchedTotal++;
+        if (!presentRolls.has(roll.toLowerCase())) {
+          absentees.push({
+            rollNo: roll,
+            name: name,
+            status: 'Absent'
+          });
+        }
       }
     });
 
     return NextResponse.json({
       success: true,
-      message: 'Attendance submitted successfully.',
+      message: 'Attendance processed successfully.',
+      targetBatch: targetSubBatch || targetSection || 'ALL',
+      totalCandidates: matchedTotal,
+      presentCount: presentRolls.size,
       absentees,
     });
   } catch (error) {

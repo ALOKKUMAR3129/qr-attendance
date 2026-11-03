@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getGoogleSheet } from '@/lib/googleSheets';
+import { getGoogleSheet, getSheetByName } from '@/lib/googleSheets';
 
 export async function GET(req) {
   try {
@@ -8,18 +8,13 @@ export async function GET(req) {
     const subject = searchParams.get('subject');
 
     const doc = await getGoogleSheet();
-    const sheet =
-      doc.sheetsByTitle['Attendance_Logs'] ||
-      doc.sheetsByTitle['attendance_logs'] ||
-      doc.sheetsByTitle['ATTENDANCE_LOGS'];
+    const sheet = getSheetByName(doc, ['Attendance_Logs', 'AttendanceLogs', 'Logs']);
 
     if (!sheet) {
       return NextResponse.json({ success: true, logs: [] });
     }
 
     const rows = await sheet.getRows();
-
-    // Clean query (e.g. "DS Tutorial (CSIT-2A2)" -> "dstutorial")
     const cleanQuery = subject
       ? subject.toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '')
       : '';
@@ -27,7 +22,6 @@ export async function GET(req) {
     const logs = [];
 
     rows.forEach((row, idx) => {
-      // Universal Roll No Header check
       const rRoll = String(
         row.get('Roll_No') ||
         row.get('ROLL NO') ||
@@ -37,15 +31,14 @@ export async function GET(req) {
         ''
       ).trim();
 
-      // Universal Subject Header check
       const rSub = String(row.get('Subject') || row.get('SUBJECT') || '').trim();
       const cleanRowSub = rSub.toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
 
-      const rDate = String(row.get('Date') || row.get('DATE') || row.get('Timestamp') || '');
+      const rDate = String(row.get('Date') || row.get('DATE') || '');
       const rTime = String(row.get('Time') || row.get('TIME') || '');
       const rStatus = String(row.get('Status') || row.get('STATUS') || 'Present').trim();
 
-      // 1. Student Portal Check (by Roll No)
+      // Student View: Match by Roll Number
       if (rollNo && rRoll.toLowerCase() === rollNo.trim().toLowerCase()) {
         logs.push({
           id: `log_${idx}`,
@@ -55,7 +48,7 @@ export async function GET(req) {
           status: rStatus,
         });
       }
-      // 2. Teacher Portal Check (by Subject for Live Scans)
+      // Teacher View: Match by Subject for Live Scans
       else if (cleanQuery) {
         const isSubMatch = !cleanQuery || cleanRowSub.includes(cleanQuery) || cleanQuery.includes(cleanRowSub);
         if (isSubMatch && rStatus.toLowerCase() === 'present') {
