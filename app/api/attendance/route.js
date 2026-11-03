@@ -1,6 +1,22 @@
 import { NextResponse } from 'next/server';
 import { getGoogleSheet, getSheetByName } from '@/lib/googleSheets';
 
+// Precise Haversine distance formula to calculate distance in meters
+function getDistanceInMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371e3; // Earth radius in meters
+  const toRad = (deg) => (deg * Math.PI) / 180;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c);
+}
+
 export async function POST(req) {
   try {
     const { sessionId, rollNo, studentName, branchSection, latitude, longitude } = await req.json();
@@ -24,10 +40,12 @@ export async function POST(req) {
       );
     }
 
-    // 1. Fetch Session Details from Active_Sessions
+    // 1. Fetch Session Details & Teacher GPS Coordinates
     let sessionSubject = 'Lecture';
     let sessionBranch = '';
     let teacherId = '';
+    let teacherLat = null;
+    let teacherLng = null;
 
     if (sessionsSheet) {
       const sRows = await sessionsSheet.getRows();
@@ -38,10 +56,41 @@ export async function POST(req) {
         sessionSubject = String(currentSession.get('Subject') || 'Lecture').trim();
         sessionBranch = String(currentSession.get('Branch_Section') || '').trim();
         teacherId = String(currentSession.get('Teacher_ID') || '').trim();
+
+        const rawLat = currentSession.get('Latitude') || currentSession.get('LATITUDE') || currentSession.get('Teacher_Lat');
+        const rawLng = currentSession.get('Longitude') || currentSession.get('LONGITUDE') || currentSession.get('Teacher_Lng');
+
+        if (rawLat && rawLng) {
+          teacherLat = parseFloat(rawLat);
+          teacherLng = parseFloat(rawLng);
+        }
       }
     }
 
-    // 2. Fetch Student Registered Section
+    // 2. Strict 100-Meter Geofence Distance Verification
+    if (teacherLat !== null && teacherLng !== null && !isNaN(teacherLat) && !isNaN(teacherLng)) {
+      if (latitude === undefined || longitude === undefined || latitude === null || longitude === null) {
+        return NextResponse.json({
+          success: false,
+          message: 'Location access is required. Please turn on your device GPS to verify attendance.'
+        }, { status: 403 });
+      }
+
+      const studentLat = parseFloat(latitude);
+      const studentLng = parseFloat(longitude);
+
+      const distance = getDistanceInMeters(teacherLat, teacherLng, studentLat, studentLng);
+
+      // Maximum allowed radius: 100 meters
+      if (distance > 100) {
+        return NextResponse.json({
+          success: false,
+          message: `Location Verification Failed: You are ${distance}m away from the classroom. Maximum permitted range is 100m.`
+        }, { status: 403 });
+      }
+    }
+
+    // 3. Student Registered Section Verification
     let studentSec = String(branchSection || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!studentSec && studentsSheet) {
       const sRows = await studentsSheet.getRows();
@@ -53,7 +102,7 @@ export async function POST(req) {
       }
     }
 
-    // 3. Strict Batch & Section Cross-Verification (Clean English Response)
+    // 4. Batch & Section Matching
     const fullClassText = `${sessionSubject} ${sessionBranch}`.toUpperCase();
     const subBatchMatch = fullClassText.match(/2[A-H][12]/); // e.g., "2A1", "2A2", "2B1"
     const sectionMatch = fullClassText.match(/2[A-H](?![0-9])/); // e.g., "2A", "2B"
@@ -91,7 +140,7 @@ export async function POST(req) {
       hour12: true
     }).format(new Date());
 
-    // 4. Duplicate Check
+    // 5. Duplicate Scan Check
     const logRows = await logsSheet.getRows();
     const cleanRoll = String(rollNo).trim().toLowerCase();
     const cleanSub = sessionSubject.toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
@@ -117,7 +166,7 @@ export async function POST(req) {
       });
     }
 
-    // 5. Valid Student Insert to Attendance_Logs
+    // 6. Save Attendance Entry
     await logsSheet.addRow({
       Roll_No: String(rollNo).trim(),
       Student_Name: studentName || 'Student',
