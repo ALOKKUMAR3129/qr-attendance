@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 // @ts-ignore
 import QRCode from 'qrcode';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import { useTheme } from 'next-themes';
 import {
   QrCode,
@@ -94,7 +94,7 @@ export default function Home() {
   const [absentees, setAbsentees] = useState<any[]>([]);
   const [submittingAttendance, setSubmittingAttendance] = useState(false);
 
-  // Teacher History Modal State (Static initial value to prevent Next.js prerender build error)
+  // Teacher History Modal State
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [historyDate, setHistoryDate] = useState('');
   const [historyLectures, setHistoryLectures] = useState<any[]>([]);
@@ -105,8 +105,8 @@ export default function Home() {
   const [scanMessage, setScanMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [marking, setMarking] = useState(false);
   const [attendanceLogs, setAttendanceLogs] = useState<any[]>([]);
+  const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
 
-  // Set real day and default date on client mount
   useEffect(() => {
     try {
       const todayIso = new Date().toISOString().split('T')[0];
@@ -174,7 +174,7 @@ export default function Home() {
     fetchWeeklySchedule();
   }, [user, activeDay]);
 
-  // STUDENT: Live Real-Time Polling (No logout needed for updates)
+  // STUDENT: Real-time Attendance Polling
   const loadStudentAttendance = async () => {
     if (!user || user.role !== 'student') return;
     try {
@@ -203,7 +203,7 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [user]);
 
-  // TEACHER: Fetch Live Attendance Logs
+  // TEACHER: Live Attendance Polling
   const fetchTeacherLogs = async () => {
     if (!selectedClass) return;
     try {
@@ -239,7 +239,6 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [user, selectedClass]);
 
-  // Fetch Teacher Historical Attendance by Date
   const fetchHistoryByDate = async (targetDate: string) => {
     if (!user || user.role !== 'teacher' || !targetDate) return;
     setLoadingHistory(true);
@@ -350,7 +349,7 @@ export default function Home() {
     setPassword('');
     setQrCodeUrl('');
     setActiveSessionId('');
-    setScannerActive(false);
+    stopScanner();
     setScanMessage(null);
     setAttendanceLogs([]);
     setTeacherLogs([]);
@@ -556,43 +555,57 @@ export default function Home() {
     }
   };
 
-  useEffect(() => {
-    let scanner: any = null;
+  // DIRECT BACK CAMERA SCANNER (No dropdowns, no "Select Camera")
+  const startDirectBackCameraScanner = async () => {
+    setScannerActive(true);
+    setScanMessage(null);
 
-    if (scannerActive && user?.role === 'student') {
-      scanner = new Html5QrcodeScanner(
-        'student-reader',
-        {
-          fps: 10,
-          qrbox: { width: 220, height: 220 },
-          aspectRatio: 1.0,
-          rememberLastUsedCamera: true,
-          supportedScanTypes: [0]
-        },
-        false
-      );
+    // Timeout allows DOM container to mount cleanly
+    setTimeout(async () => {
+      try {
+        if (!html5QrCodeRef.current) {
+          html5QrCodeRef.current = new Html5Qrcode('direct-camera-reader');
+        }
 
-      scanner.render(
-        (decodedText: string) => {
-          try {
-            const parsed = JSON.parse(decodedText);
-            if (parsed.sessionId) {
-              scanner.clear().catch(() => {});
-              setScannerActive(false);
-              processAttendance(parsed.sessionId, parsed.subject);
+        await html5QrCodeRef.current.start(
+          { facingMode: 'environment' }, // Directly launches back/rear camera
+          {
+            fps: 15,
+            qrbox: { width: 240, height: 240 }
+          },
+          (decodedText: string) => {
+            try {
+              const parsed = JSON.parse(decodedText);
+              if (parsed.sessionId) {
+                stopScanner();
+                processAttendance(parsed.sessionId, parsed.subject);
+              }
+            } catch {
+              setScanMessage({ type: 'error', text: 'Invalid QR Code format.' });
             }
-          } catch {
-            setScanMessage({ type: 'error', text: 'Invalid QR Code format.' });
-          }
-        },
-        () => {}
-      );
-    }
+          },
+          () => {}
+        );
+      } catch (err: any) {
+        console.error('Camera initialization error:', err);
+        setScanMessage({ type: 'error', text: 'Camera access denied or camera is unavailable.' });
+        setScannerActive(false);
+      }
+    }, 100);
+  };
 
-    return () => {
-      if (scanner) scanner.clear().catch(() => {});
-    };
-  }, [scannerActive]);
+  const stopScanner = () => {
+    if (html5QrCodeRef.current) {
+      html5QrCodeRef.current
+        .stop()
+        .then(() => {
+          html5QrCodeRef.current?.clear();
+          html5QrCodeRef.current = null;
+        })
+        .catch(() => {});
+    }
+    setScannerActive(false);
+  };
 
   const processAttendance = (sessionId: string, subject: string) => {
     setMarking(true);
@@ -618,7 +631,7 @@ export default function Home() {
           if (data.success) {
             setScanMessage({
               type: 'success',
-              text: 'Attendance verified successfully!'
+              text: data.message || 'Attendance verified successfully!'
             });
             loadStudentAttendance();
           } else {
@@ -782,7 +795,6 @@ export default function Home() {
           </div>
 
           <div className="flex items-center space-x-3">
-            {/* DATE-WISE HISTORY BUTTON */}
             <button
               type="button"
               onClick={() => setHistoryModalOpen(true)}
@@ -901,7 +913,7 @@ export default function Home() {
               ) : (
                 <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 rounded-xl text-center text-xs font-semibold flex items-center justify-center gap-2">
                   <CheckCircle className="w-4 h-4 text-emerald-600" />
-                  Attendance marked & locked for this session.
+                  Attendance marked and locked
                 </div>
               )}
 
@@ -1400,10 +1412,7 @@ export default function Home() {
                 </div>
                 <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Scan your teacher's live QR code to mark attendance.</p>
                 <button
-                  onClick={() => {
-                    setScannerActive(true);
-                    setScanMessage(null);
-                  }}
+                  onClick={startDirectBackCameraScanner}
                   className="mt-4 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium flex items-center gap-2 shadow-md shadow-blue-500/20 cursor-pointer"
                 >
                   <Camera className="w-4 h-4" />
@@ -1412,12 +1421,13 @@ export default function Home() {
               </div>
             )}
 
+            {/* DIRECT BACK CAMERA VIEWFINDER - NO DROPDOWNS */}
             {scannerActive && (
-              <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-black">
-                <div id="student-reader" className="w-full" />
+              <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-black flex flex-col items-center">
+                <div id="direct-camera-reader" className="w-full max-w-[320px] aspect-square" />
                 <button
-                  onClick={() => setScannerActive(false)}
-                  className="w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold cursor-pointer"
+                  onClick={stopScanner}
+                  className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold cursor-pointer transition border-t border-slate-700"
                 >
                   Cancel Scan
                 </button>

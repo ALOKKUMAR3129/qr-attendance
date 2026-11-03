@@ -19,7 +19,7 @@ export async function POST(req) {
 
     if (!logsSheet) {
       return NextResponse.json(
-        { success: false, message: 'Attendance_Logs sheet not found.' },
+        { success: false, message: 'Attendance logs sheet not found.' },
         { status: 500 }
       );
     }
@@ -41,7 +41,7 @@ export async function POST(req) {
       }
     }
 
-    // 2. Student ka Exact Section Verify karo (Passed data ya Students sheet se)
+    // 2. Fetch Student Registered Section
     let studentSec = String(branchSection || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!studentSec && studentsSheet) {
       const sRows = await studentsSheet.getRows();
@@ -53,7 +53,7 @@ export async function POST(req) {
       }
     }
 
-    // 3. Strict Batch & Section Cross-Verification
+    // 3. Strict Batch & Section Cross-Verification (Clean English Response)
     const fullClassText = `${sessionSubject} ${sessionBranch}`.toUpperCase();
     const subBatchMatch = fullClassText.match(/2[A-H][12]/); // e.g., "2A1", "2A2", "2B1"
     const sectionMatch = fullClassText.match(/2[A-H](?![0-9])/); // e.g., "2A", "2B"
@@ -62,19 +62,17 @@ export async function POST(req) {
     const targetSection = (!targetSubBatch && sectionMatch) ? sectionMatch[0] : (targetSubBatch ? targetSubBatch.slice(0, 2) : null);
 
     if (targetSubBatch) {
-      // Tutorial ya Lab jo kisi sub-batch ke liye scheduled hai
       if (!studentSec.includes(targetSubBatch)) {
         return NextResponse.json({
           success: false,
-          message: `Access Denied: Yeh lecture ${targetSubBatch} ke liye hai. Aapka batch (${studentSec || 'Unknown'}) match nahi karta.`
+          message: `Access Denied: This lecture is scheduled for batch ${targetSubBatch}. Your registered section (${studentSec || 'Unknown'}) is not eligible.`
         }, { status: 403 });
       }
     } else if (targetSection) {
-      // Pure section ki common theory class
       if (!studentSec.includes(targetSection)) {
         return NextResponse.json({
           success: false,
-          message: `Access Denied: Yeh lecture Section ${targetSection} ke liye hai. Aapka section (${studentSec || 'Unknown'}) match nahi karta.`
+          message: `Access Denied: This lecture is scheduled for Section ${targetSection}. Your registered section (${studentSec || 'Unknown'}) is not eligible.`
         }, { status: 403 });
       }
     }
